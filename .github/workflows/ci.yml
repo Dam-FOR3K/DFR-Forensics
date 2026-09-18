@@ -27,7 +27,14 @@ jobs:
       env:
         QT_QPA_PLATFORM: offscreen
       run: |
-        pytest tests/ -v
+        python -m pytest tests/ -v --tb=short | Tee-Object -FilePath pytest_output.log
+
+    - name: Publish Test Summary
+      if: always()
+      run: |
+        if (Test-Path pytest_output.log) {
+          Get-Content pytest_output.log | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+        }
 
     - name: Validate Technical Whitepapers Generation
       run: |
