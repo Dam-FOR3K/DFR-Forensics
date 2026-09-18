@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [ main, master ]
 
+permissions:
+  contents: write
+
 jobs:
   test:
     runs-on: windows-latest
@@ -35,6 +38,23 @@ jobs:
         if (Test-Path pytest_output.log) {
           Get-Content pytest_output.log | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
         }
+
+    - name: Post Failure Comment
+      if: failure()
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          let log = 'No log';
+          if (fs.existsSync('pytest_output.log')) {
+            log = fs.readFileSync('pytest_output.log', 'utf8');
+          }
+          await github.rest.repos.createCommitComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            commit_sha: context.sha,
+            body: '```\n' + log.slice(-3000) + '\n```'
+          });
 
     - name: Validate Technical Whitepapers Generation
       run: |
