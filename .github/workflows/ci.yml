@@ -1,4 +1,4 @@
-name: WipeRescue-Forensics CI
+name: DFR-Forensics CI
 
 on:
   push:
@@ -23,10 +23,13 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
-    - name: Run Test Suite
+    - name: Run Test Suite (pytest)
+      env:
+        QT_QPA_PLATFORM: offscreen
       run: |
-        python tests/generate_test_disk.py
-        python tests/test_pipeline.py
-        python tests/test_split_e01.py
-        python tests/test_aff4_apfs.py
-        python docs/generate_technical_pdfs.py
+        pytest tests/ -v
+
+    - name: Validate Technical Whitepapers Generation
+      run: |
+        python scripts/generate_whitepapers.py
+
