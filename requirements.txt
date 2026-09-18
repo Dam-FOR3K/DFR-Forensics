@@ -1,4 +1,4 @@
-# Dépendances DFR-Forensics (100% disponibles dans le dossier wheels/ pour usage hors-ligne)
+# Dépendances DFR-Forensics
 PySide6>=6.11.2
 rich>=14.0.0
 dissect.evidence>=3.13
