@@ -1,1 +1,1 @@
-"""Package UI pour WipeRescue-Forensics."""
+"""Package UI pour DFR-Forensics."""

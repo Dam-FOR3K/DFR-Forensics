@@ -1,5 +1,5 @@
 """
-CorruptDisk-Analyzer - Moteur de Lecture Apple APFS
+DFR-Forensics - Moteur de Lecture Apple APFS
 Permet d'explorer l'arborescence des conteneurs NXSB et des volumes APFS,
 de prévisualiser les métadonnées et d'extraire les fichiers.
 """

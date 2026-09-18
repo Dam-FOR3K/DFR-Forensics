@@ -1,5 +1,5 @@
 """
-WipeRescue-Forensics - Module d'Internationalisation (i18n)
+DFR-Forensics - Module d'Internationalisation (i18n)
 Supporte le basculement dynamique Français <-> Anglais pour toute l'interface,
 les messages, les rapports et les boîtes de dialogue.
 """

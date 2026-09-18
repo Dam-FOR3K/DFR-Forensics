@@ -1,5 +1,5 @@
 """
-WipeRescue-Forensics - Synthétiseur GPT de zéro & Profiler d'Attaque (Wipers / Ransomwares)
+DFR-Forensics - Synthétiseur GPT de zéro & Profiler d'Attaque (Wipers / Ransomwares)
 Permet de ressusciter un disque même lorsque la table primaire ET la table de secours ont été anéanties.
 Carve les superblocs (NTFS, EXT4, APFS, LUKS, FAT32) et synthétise une géométrie GPT neuve et valide.
 """

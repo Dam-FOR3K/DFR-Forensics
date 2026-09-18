@@ -1,5 +1,5 @@
 """
-WipeRescue-Forensics - Test de prise en charge des images segmentées .001, .002
+DFR-Forensics - Test de prise en charge des images segmentées .001, .002
 """
 
 import os

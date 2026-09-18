@@ -1,5 +1,5 @@
 """
-CorruptDisk-Analyzer - Moteur de Corrélation de Métadonnées Orphelines (FAT & NTFS)
+DFR-Forensics - Moteur de Corrélation de Métadonnées Orphelines (FAT & NTFS)
 Recherche et analyse les structures de répertoires orphelines (DIR_ENTRY FAT avec LFN, et records $MFT NTFS)
 dans l'espace non alloué ou corrompu pour réassocier automatiquement les vrais noms de fichiers,
 tailles d'origine, dates et numéros de clusters aux artefacts carvés.

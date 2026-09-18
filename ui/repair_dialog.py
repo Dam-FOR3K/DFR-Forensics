@@ -1,5 +1,5 @@
 """
-WipeRescue-Forensics - Dialogue de restauration et prévisualisation Diff
+DFR-Forensics - Dialogue de restauration et prévisualisation Diff
 Permet de visualiser les modifications avant écriture et d'exporter en toute sécurité.
 """
 
@@ -55,7 +55,7 @@ class RepairDialog(QDialog):
     def __init__(self, engine: RepairEngine, parent=None):
         super().__init__(parent)
         self.engine = engine
-        self.setWindowTitle("WipeRescue-Forensics - Assistant de Restauration")
+        self.setWindowTitle("DFR-Forensics - Assistant de Restauration")
         self.resize(950, 650)
         self.patches: List[SectorPatch] = self.engine.prepare_restoration_plan()
 

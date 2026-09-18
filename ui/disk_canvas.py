@@ -1,5 +1,5 @@
 """
-CorruptDisk-Analyzer - Widget graphique de cartographie spatiale interactive du disque
+DFR-Forensics - Widget graphique de cartographie spatiale interactive du disque
 Affiche la disposition des partitions, l'aiguille de lecture synchronisée avec l'inspecteur hexadécimal,
 un zoom progressif multidirectionnel (molette, boutons +/-, pan clic-droit), une minimap de navigation,
 et une cartographie thermique haute précision de la présence réelle des données (données vs zéros vs chiffré).

@@ -1,5 +1,5 @@
 """
-WipeRescue-Forensics - Moteur Cryptographique Forensique
+DFR-Forensics - Moteur Cryptographique Forensique
 Permet l'inspection des métadonnées, le déverrouillage sécurisé (LUKS1/LUKS2, BitLocker)
 et l'accès en lecture seule au système de fichiers déchiffré.
 """

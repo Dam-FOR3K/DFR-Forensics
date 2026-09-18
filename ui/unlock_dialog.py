@@ -1,5 +1,5 @@
 """
-WipeRescue-Forensics - Dialogue de Déverrouillage Cryptographique (LUKS / BitLocker)
+DFR-Forensics - Dialogue de Déverrouillage Cryptographique (LUKS / BitLocker)
 Fournit une interface intuitive et sécurisée pour déverrouiller des conteneurs chiffrés.
 """
 

@@ -1,5 +1,5 @@
 """
-CorruptDisk-Analyzer - Dialogue de Sélection de Disque Physique
+DFR-Forensics - Dialogue de Sélection de Disque Physique
 Permet d'énumérer, d'inspecter et d'ouvrir en lecture seule stricte
 les disques physiques connectés (SATA, NVMe, USB, SCSI).
 """

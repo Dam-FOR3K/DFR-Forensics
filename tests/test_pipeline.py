@@ -1,5 +1,5 @@
 """
-WipeRescue-Forensics - Tests unitaires et d'intégration complets
+DFR-Forensics - Tests unitaires et d'intégration complets
 Vérifie le cycle de vie :
  1. Lecture de l'image disque
  2. Détection du wipe et diagnostic

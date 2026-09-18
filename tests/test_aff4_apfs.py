@@ -1,5 +1,5 @@
 """
-WipeRescue-Forensics - Test unitaire pour image AFF4 contenant un conteneur Apple APFS
+DFR-Forensics - Test unitaire pour image AFF4 contenant un conteneur Apple APFS
 """
 
 import os

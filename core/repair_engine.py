@@ -1,5 +1,5 @@
 """
-WipeRescue-Forensics - Moteur de reconstruction et restauration GPT
+DFR-Forensics - Moteur de reconstruction et restauration GPT
 Méthode forensique conforme au scénario CIRCL :
  1. Génération du Protective MBR à LBA 0
  2. Inversion des rôles du Header GPT de secours -> Header primaire à LBA 1
@@ -150,7 +150,7 @@ class RepairEngine:
 
         script = f"""#!/bin/bash
 # ==============================================================================
-# WipeRescue-Forensics - Procédure de restauration manuelle (Table GPT secondaire)
+# DFR-Forensics - Procédure de restauration manuelle (Table GPT secondaire)
 # Cible : {disk_dev} (Taille : {self.total_sectors} secteurs de {self.sector_size} octets)
 # ==============================================================================
 

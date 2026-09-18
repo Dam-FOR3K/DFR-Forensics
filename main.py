@@ -1,5 +1,5 @@
 """
-CorruptDisk-Analyzer - Point d'entrée principal
+DFR-Forensics - Point d'entrée principal
 Lance l'interface graphique (PySide6) par défaut,
 ou bascule en mode CLI si des arguments de commande sont passés.
 """

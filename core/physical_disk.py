@@ -1,5 +1,5 @@
 """
-CorruptDisk-Analyzer - Gestionnaire de Disques Physiques
+DFR-Forensics - Gestionnaire de Disques Physiques
 Énumération des périphériques de stockage (SATA, NVMe, USB, SCSI),
 vérification des privilèges Administrateur (UAC) et utilitaires d'accès bas niveau.
 """

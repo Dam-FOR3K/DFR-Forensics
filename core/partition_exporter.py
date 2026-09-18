@@ -1,5 +1,5 @@
 """
-WipeRescue-Forensics - Moteur d'Exportation Forensique de Partition
+DFR-Forensics - Moteur d'Exportation Forensique de Partition
 Permet d'exporter n'importe quelle partition (brute ou déchiffrée) vers une image autonome (.dd / .raw)
 avec calcul simultané des sommes de contrôle MD5 et SHA-256 et fiche d'expertise légale.
 """
@@ -115,7 +115,7 @@ def export_partition(
 
         report_lines = [
             "================================================================================",
-            "        WipeRescue-Forensics - Fiche d'Expertise d'Export de Partition",
+            "        DFR-Forensics - Fiche d'Expertise d'Export de Partition",
             "================================================================================",
             f"Date d'export (UTC)       : {utc_now}",
             f"Date locale               : {local_now}",

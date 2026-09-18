@@ -1,1 +1,1 @@
-"""Package core pour WipeRescue-Forensics."""
+"""Package core pour DFR-Forensics."""

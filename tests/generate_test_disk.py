@@ -1,5 +1,5 @@
 """
-WipeRescue-Forensics - Générateur d'image disque de test synthétique
+DFR-Forensics - Générateur d'image disque de test synthétique
 Simule fidèlement le cas du PDF CIRCL :
  - Disque GPT avec 2 partitions (dont 1 conteneur chiffré LUKS2)
  - Backup GPT intact à la fin du disque

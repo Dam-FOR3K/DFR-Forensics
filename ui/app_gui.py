@@ -1,5 +1,5 @@
 """
-CorruptDisk-Analyzer - Interface Graphique Principale (PySide6 / Qt6)
+DFR-Forensics - Interface Graphique Principale (PySide6 / Qt6)
 Bilingue Français / Anglais avec basculement dynamique en 1-clic.
 Cartographie spatiale, Inspecteur Hex synchronisé, Profiler de Wipers,
 Explorateur COW In-Memory, Générateur de Rapports Judiciaires et Restauration GPT.
@@ -173,7 +173,7 @@ QHeaderView::section {
 
 
 class MainWindow(QMainWindow):
-    """Fenêtre principale de l'outil forensique WipeRescue."""
+    """Fenêtre principale de l'outil forensique DFR-Forensics."""
 
     def __init__(self, initial_image: Optional[str] = None):
         super().__init__()

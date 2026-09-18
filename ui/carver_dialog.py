@@ -1,5 +1,5 @@
 """
-CorruptDisk-Analyzer - Interface Graphique de Carving Médico-Légal (In-Memory)
+DFR-Forensics - Interface Graphique de Carving Médico-Légal (In-Memory)
 Aperçu direct des artefacts découverts en mémoire vive sans aucune écriture disque,
 galerie interactive, extraction chirurgicale à la demande et journal d'audit.
 """

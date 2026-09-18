@@ -1,5 +1,5 @@
 """
-CorruptDisk-Analyzer - Moteur de Lecture QNX Avancé (QNX4 & QNX6 Power-Safe)
+DFR-Forensics - Moteur de Lecture QNX Avancé (QNX4 & QNX6 Power-Safe)
 Inspiré des recherches forensiques automobiles du NFI (qnxmount) et d'Alexis Brignoni (qnxprobe).
 Prend en charge :
  - Superblocks QNX6 multi-générations (primaire 0x2000, secondaire 0x2E00, bootblock 0xeb109000, fin de volume)

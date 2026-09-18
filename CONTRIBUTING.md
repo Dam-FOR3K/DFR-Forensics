@@ -33,15 +33,7 @@ Thank you for your interest in contributing to **DFR-Forensics** (*Disk & File R
 Before submitting any pull request, ensure all test suites pass:
 
 ```bash
-# 1. Pipeline integration test (synthetic wiped disk)
-python tests/generate_test_disk.py
-python tests/test_pipeline.py
-
-# 2. Split RAW image test
-python tests/test_split_e01.py
-
-# 3. AFF4 & APFS container test
-python tests/test_aff4_apfs.py
+pytest tests/ -v
 ```
 
 ---

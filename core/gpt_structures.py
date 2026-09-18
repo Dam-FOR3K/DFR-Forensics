@@ -1,5 +1,5 @@
 """
-WipeRescue-Forensics - Structures binaires UEFI MBR et GPT
+DFR-Forensics - Structures binaires UEFI MBR et GPT
 Conforme aux spécifications UEFI 2.10.
 Gère le packing, l'unpacking, le calcul et la validation des CRC32.
 """

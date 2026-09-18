@@ -1,5 +1,5 @@
 """
-WipeRescue-Forensics - Calcul d'entropie et cartographie des blocs
+DFR-Forensics - Calcul d'entropie et cartographie des blocs
 Mesure l'entropie de Shannon et la densité de zéros pour cartographier le disque.
 """
 

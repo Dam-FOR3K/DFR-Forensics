@@ -1,5 +1,5 @@
 """
-WipeRescue-Forensics - Interface Ligne de Commande (CLI avec Rich)
+DFR-Forensics - Interface Ligne de Commande (CLI avec Rich)
 Permet d'effectuer le triage, l'analyse d'intégrité et la restauration sans interface graphique.
 """
 

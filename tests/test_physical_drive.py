@@ -34,7 +34,7 @@ def test_is_physical_drive_path():
     # Fichiers standards (doivent renvoyer False)
     assert not is_physical_drive_path("image.raw")
     assert not is_physical_drive_path(r"C:\evidence\disk.e01")
-    assert not is_physical_drive_path("/home/user/disk.img")
+    assert not is_physical_drive_path("/var/evidence/disk.img")
     assert not is_physical_drive_path("")
     assert not is_physical_drive_path(None)
 

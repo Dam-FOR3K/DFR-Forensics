@@ -1,5 +1,5 @@
 """
-CorruptDisk-Analyzer - Moteur de Carving Médico-Légal Sémantique (In-Memory)
+DFR-Forensics - Moteur de Carving Médico-Légal Sémantique (In-Memory)
 Permet la reconstruction chirurgicale d'artefacts sur partitions détruites ou espaces non alloués.
 Calcule la taille mathématique exacte des fichiers via leurs métadonnées internes,
 éliminant les faux footers (ex: miniatures EXIF imbriquées dans les JPEG) et les troncatures.

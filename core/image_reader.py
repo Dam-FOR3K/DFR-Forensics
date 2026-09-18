@@ -1,5 +1,5 @@
 """
-WipeRescue-Forensics - Couche d'accès aux images disques
+DFR-Forensics - Couche d'accès aux images disques
 Supporte :
  - Images brutes : .raw, .dd, .img, .bin, .iso
  - Images brutes segmentées : .001, .002, ...

@@ -1,5 +1,5 @@
 """
-WipeRescue-Forensics - Inspecteur hexadécimal de secteurs LBA
+DFR-Forensics - Inspecteur hexadécimal de secteurs LBA
 Visualise n'importe quel secteur au format 'xxd' avec sauts rapides,
 détection de signatures (APFS, LUKS, NTFS, MBR, GPT) et synchronisation bidirectionnelle.
 """
