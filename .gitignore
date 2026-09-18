@@ -1,0 +1,32 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.spec
+wheels/
+vendor/
+
+# Test artifacts
+tests/*.raw
+tests/*.bin
+tests/*.001
+tests/*.002
+tests/*.aff4
+tests/cli_repaired.raw
+tests/cli_patch.bin
+tests/test_repaired_disk.raw
+
+# OS specific
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE & editors
+.vscode/
+.idea/
+*.swp
+*.swo
