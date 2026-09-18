@@ -1,8 +1,8 @@
 """
-CorruptDisk-Analyzer - Générateur de Whitepapers Techniques & Guides d'Architecture
+DFR-Forensics - Générateur de Whitepapers Techniques & Guides d'Architecture
 Produit une documentation forensique approfondie multi-pages (FR et EN)
 destinée aux analystes médico-légaux, ingénieurs en rétro-ingénierie et auditeurs.
-Auteur : Dam-FOR3K | Version : v2.5.0
+Auteur : Dam-FOR3K | Version : v2.6.0
 """
 
 import os
@@ -197,7 +197,7 @@ def build_french_whitepaper(output_path: str):
     meta_table_data = [
         [
             Paragraph("<b>Auteur :</b> Dam-FOR3K", s["table_cell"]),
-            Paragraph("<b>Version :</b> v2.5.0", s["table_cell"]),
+            Paragraph("<b>Version :</b> v2.6.0", s["table_cell"]),
             Paragraph("<b>Date :</b> Septembre 2026", s["table_cell"]),
             Paragraph("<b>Licence :</b> MIT Open-Source", s["table_cell"]),
         ]
@@ -270,42 +270,49 @@ def build_french_whitepaper(output_path: str):
     story.append(PageBreak())
     story.append(Paragraph("3. Systèmes de Fichiers & Algorithmes de Reconstruction Autonome", s["h1"]))
 
-    story.append(Paragraph("A. Moteur FAT12 / FAT16 / FAT32 & Reconstruction de BPB Orphelin", s["h2"]))
+    story.append(Paragraph("A. Moteur FAT12 / FAT16 / FAT32 & Bascule Boot Sector de Secours", s["h2"]))
     story.append(Paragraph(
         "Dans la norme FAT (File Allocation Table), le <b>BPB (BIOS Parameter Block)</b> situé dans le secteur d'amorçage (VBR / LBA 0) "
         "gouverne toute l'architecture : taille des secteurs, secteurs réservés, nombre de tables FAT, entrées racine et secteurs par cluster (SPC). "
-        "Si un wiper remplit le LBA 0 de zéros (attaque ciblant les premiers secteurs du volume), le système de fichiers devient totalement invisible.",
+        "Si un wiper remplit le LBA 0 de zéros, <b>DFR-Forensics</b> déploie une stratégie de résilience à deux niveaux :",
         s["body"]
     ))
-    story.append(Paragraph(
-        "Pour résoudre ce cas sans recourir à aucune valeur codée en dur, <b>DFR-Forensics</b> déploie un algorithme autonome fondé sur les invariants universels :",
-        s["body"]
-    ))
-    story.append(Paragraph("1. <b>Détection du descripteur de média</b> : Balayage des premiers secteurs pour localiser la première table FAT (FAT1). Toute FAT commence par un descripteur (<code>0xF8</code> disque fixe/clé USB, <code>0xF0</code> disquette) suivi d'octets <code>0xFF</code>.", s["bullet"]))
-    story.append(Paragraph("2. <b>Calcul mathématique de la taille d'une FAT</b> : La norme FAT impose deux copies redondantes (FAT1 et FAT2). L'algorithme recherche la répétition exacte de la signature. La distance absolue donne :<br/>&nbsp;&nbsp;&nbsp;&nbsp;<b>Secteurs par FAT = LBA(FAT2) - LBA(FAT1)</b>", s["bullet"]))
-    story.append(Paragraph("3. <b>Localisation de la Table Racine (Root Directory)</b> : En FAT12/16, le répertoire racine succède immédiatement à FAT2 (LBA = LBA(FAT2) + Secteurs par FAT). Ses entrées de 32 octets (noms 8.3, LFN, tailles, clusters) sont décodées.", s["bullet"]))
-    story.append(Paragraph("4. <b>Résolution dynamique de la taille de cluster (SPC)</b> : Un cluster FAT est obligatoirement une puissance de 2 (1, 2, 4, 8, 16, 32, 64 secteurs). L'algorithme prend les fichiers découverts dans la racine avec un cluster C &gt; 2, calcule leur adresse physique potentielle :<br/>&nbsp;&nbsp;&nbsp;&nbsp;<b>LBA = LBA(DataStart) + (C - 2) * SPC</b><br/>et sonde les 16 premiers octets. Dès que les signatures réelles (JPEG <code>FF D8</code>, PDF <code>%PDF</code>, ZIP <code>PK</code>, OLE <code>D0 CF</code>) concordent, la taille exacte du cluster est confirmée mathématiquement.", s["bullet"]))
+    story.append(Paragraph("• <b>Bascule sur le Boot Sector de Secours (LBA 6)</b> : En FAT32, le système interroge automatiquement le secteur 6 (réplique OEM officielle de l'amorçage). Si ce secteur est intact, la géométrie d'origine est restaurée instantanément sans dérivation heuristique.", s["bullet"]))
+    story.append(Paragraph("• <b>Reconstruction Mathématique de BPB Orphelin</b> : Si les secteurs 0 et 6 sont tous deux détruits :<br/>"
+        "&nbsp;&nbsp;&nbsp;&nbsp;1. Balayage des signatures <code>0xF8 / 0xF0</code> pour localiser FAT1.<br/>"
+        "&nbsp;&nbsp;&nbsp;&nbsp;2. Calcul exact : <b>Secteurs par FAT = LBA(FAT2) - LBA(FAT1)</b>.<br/>"
+        "&nbsp;&nbsp;&nbsp;&nbsp;3. Localisation immédiate du Root Directory en fin de FAT2.<br/>"
+        "&nbsp;&nbsp;&nbsp;&nbsp;4. Résolution dynamique du SPC par corrélation mathématique sur les en-têtes réels de fichiers (JPEG, PDF, ZIP).", s["bullet"]))
 
-    story.append(Paragraph("B. Moteur Linux EXT2 / EXT3 / EXT4 & Défragmentation Indirecte", s["h2"]))
+    story.append(Paragraph("B. Moteur Linux EXT2 / EXT3 / EXT4 & Arbre d'Extents", s["h2"]))
     story.append(Paragraph(
-        "Sous Linux EXT, les données sont organisées en groupes de blocs (Block Groups). "
-        "Le superbloc principal réside à l'offset fixe 1 024 octets (LBA 2). En cas de destruction du début du disque (attaque par effacement du superbloc primaire) :",
+        "Sous Linux EXT, les données sont organisées en groupes de blocs (Block Groups). En cas de destruction du superbloc principal (LBA 2) ou de fragmentation lourde :",
         s["body"]
     ))
-    story.append(Paragraph("• <b>Détection des Superblocs de Secours (Sparse Superblock)</b> : La spécification Linux réplique le superbloc et la table des descripteurs de groupes (BGD) dans les groupes 1, 3, 5, 7, 9... L'outil sonde automatiquement l'offset 8 389 632 (LBA 16 386) et balaie jusqu'à 32 Mo pour identifier le magic <code>0xEF53</code>.", s["bullet"]))
-    story.append(Paragraph("• <b>Défragmentation des Pointeurs Directs, Indirects et Doubles Indirects</b> : Chaque Inode contient 15 pointeurs : 12 directs, 1 indirect simple (pointeur 12), 1 double indirect (pointeur 13) et 1 triple indirect (pointeur 14). L'algorithme résout l'arbre complet des blocs et élimine chirurgicalement les blocs de pointeurs de métadonnées (1 024 octets) intercalés au milieu des gros fichiers fragmentés.", s["bullet"]))
-    story.append(Paragraph("• <b>Récupération dans l'espace résiduel des répertoires (Directory Slack Space)</b> : Lorsqu'un fichier est effacé sous EXT2/3, son entrée est absorbée par la longueur du record précédent (champ <code>rec_len</code>). Le moteur fouille ce slack space résiduel pour ressusciter les fichiers effacés avec leurs noms et métadonnées d'origine.", s["bullet"]))
+    story.append(Paragraph("• <b>Détection des Superblocs de Secours (Sparse Superblock)</b> : Sonde automatique de l'offset 8 389 632 (LBA 16 386) et balayage jusqu'à 32 Mo pour identifier le magic <code>0xEF53</code> et charger la table des descripteurs de groupes.", s["bullet"]))
+    story.append(Paragraph("• <b>Support Intégral des Extents EXT4 (magic <code>0xF30A</code>)</b> : Prise en charge native de l'arbre d'extents stocké dans les 60 octets <code>i_block</code> des inodes modernes. Décodage récursif des nœuds d'index (<code>depth &gt; 0</code>) et des descripteurs de feuilles (<code>ee_block</code>, <code>ee_start</code>, <code>ee_len</code>), garantissant la réassignation bit-à-bit des fichiers fragmentés de plusieurs gigaoctets.", s["bullet"]))
+    story.append(Paragraph("• <b>Défragmentation des Pointeurs Classiques (Directs, Indirects, Doubles Indirects)</b> : Résolution chirurgicale de l'arbre de blocs Ext2/3 éliminant les blocs de pointeurs de métadonnées de 1 024 octets intercalés dans les fichiers volumineux.", s["bullet"]))
+    story.append(Paragraph("• <b>Récupération dans l'espace résiduel des répertoires (Directory Slack Space)</b> : Extraction des enregistrements de fichiers supprimés masqués dans la longueur résiduelle des entrées actives (champ <code>rec_len</code>).", s["bullet"]))
 
-    story.append(Paragraph("C. Moteur Windows NTFS ($MFT & Data Runs)", s["h2"]))
+    story.append(Paragraph("C. Moteur Windows NTFS ($MFT, $MFTMirr & Backup VBR)", s["h2"]))
     story.append(Paragraph(
-        "L'analyseur NTFS décode directement la table des fichiers maîtres <b>$MFT</b> sans passer par le système d'exploitation : "
-        "vérification des records de 1 024 octets débutant par <code>FILE</code>, validation du tableau de fixup (Update Sequence Array), "
-        "décodage des attributs <code>$STANDARD_INFORMATION</code> (horodatages quadruples MACB), <code>$FILE_NAME</code> et <code>$DATA</code>. "
-        "Pour les fichiers non-résidents, le moteur décompresse les chaînes d'allocation (runlists) en résolvant la longueur et le décalage relatif LCN.",
+        "L'analyseur NTFS décode directement la table des fichiers maîtres <b>$MFT</b> et intègre deux mécanismes de secours critiques :",
+        s["body"]
+    ))
+    story.append(Paragraph("• <b>Bascule sur $MFTMirr (cluster offset 0x38)</b> : Si le Record 0 de la $MFT primaire est effacé ou altéré par un wiper, l'outil bascule automatiquement sur le miroir <code>$MFTMirr</code> pour récupérer la définition non-résidente de l'attribut <code>$DATA</code> cartographiant l'intégralité des runs de la MFT.", s["bullet"]))
+    story.append(Paragraph("• <b>Résolution du Backup VBR (dernier secteur LBA N-1)</b> : Si le secteur d'amorçage initial est vierge, le paramétrage BPB complet (secteurs par cluster, taille d'enregistrement, clusters MFT) est restauré depuis la fin du volume.", s["bullet"]))
+    story.append(Paragraph("• <b>Carving du journal de transactions ($LogFile) & Undelete</b> : Reconstitution complète des fichiers et répertoires actifs et supprimés avec horodatages quadruples MACB ($STANDARD_INFORMATION).", s["bullet"]))
+
+    story.append(Paragraph("D. Moteur Natif exFAT (Main & Backup VBR)", s["h2"]))
+    story.append(Paragraph(
+        "Implémentation forensique pur-Python dédiée aux supports de stockage amovibles et cartes mémoires : "
+        "tolérance de panne via le Backup VBR (secteur 12), décodage des chaînes de descripteurs de 32 octets "
+        "(entrées primaires <code>0x85</code> actives et <code>0x05</code> supprimées, extensions de flux <code>0xC0</code> avec drapeaux d'allocation contiguë <code>NoFatChain</code>, et séquences de noms Unicode <code>0xC1</code>). "
+        "Extraction bit-à-bit directe sans dépendance externe.",
         s["body"]
     ))
 
-    story.append(Paragraph("D. Systèmes Embarqués, UNIX & Volumes Chiffrés", s["h2"]))
+    story.append(Paragraph("E. Systèmes Embarqués, UNIX & Volumes Chiffrés", s["h2"]))
     story.append(Paragraph(
         "• <b>QNX4 & QNX6 Power-Safe</b> : Analyse des systèmes automobiles et embarqués industriels via les superblocs <code>0x68191122</code> à LBA 8192 et 11776, arborescence d'inodes et journal de transactions.<br/>"
         "• <b>Apple APFS</b> : Décodage du Container Superblock <code>NXSB</code>, parcours des B-Trees de l'Object Map (OMAP) et énumération des volumes chiffrés ou clairs.<br/>"
@@ -487,7 +494,7 @@ def build_english_whitepaper(output_path: str):
     meta_table_data = [
         [
             Paragraph("<b>Author:</b> Dam-FOR3K", s["table_cell"]),
-            Paragraph("<b>Version:</b> v2.5.0", s["table_cell"]),
+            Paragraph("<b>Version:</b> v2.6.0", s["table_cell"]),
             Paragraph("<b>Date:</b> September 2026", s["table_cell"]),
             Paragraph("<b>License:</b> MIT Open-Source", s["table_cell"]),
         ]
@@ -556,40 +563,49 @@ def build_english_whitepaper(output_path: str):
 
     story.append(PageBreak())
     story.append(Paragraph("3. Filesystem Engines & Autonomous Recovery Algorithms", s["h1"]))
-    story.append(Paragraph("A. FAT12 / FAT16 / FAT32 & Autonomous Orphan BPB Reconstruction", s["h2"]))
+    story.append(Paragraph("A. FAT12 / FAT16 / FAT32 & Backup Boot Sector Failover", s["h2"]))
     story.append(Paragraph(
         "In FAT filesystems, the <b>BPB (BIOS Parameter Block)</b> in the Volume Boot Record (LBA 0) dictates all cluster geometry: "
         "bytes per sector, reserved sectors, number of FAT tables, root entries, and sectors per cluster (SPC). "
-        "When LBA 0 is zeroed out by a wiper (in attacks wiping early disk sectors), standard operating systems and tools fail to mount the filesystem.",
+        "When LBA 0 is zeroed out by a wiper, <b>DFR-Forensics</b> applies a dual-tier resilience strategy:",
         s["body"]
     ))
-    story.append(Paragraph(
-        "To recover the volume without hardcoding any offsets, <b>DFR-Forensics</b> deploys a mathematical derivation algorithm:",
-        s["body"]
-    ))
-    story.append(Paragraph("1. <b>Media Descriptor Discovery</b>: Scans early sectors for the first FAT table (FAT1). Every FAT starts with a media descriptor byte (<code>0xF8</code> for hard drives/USB, <code>0xF0</code> for floppy) followed by <code>0xFF</code> bytes.", s["bullet"]))
-    story.append(Paragraph("2. <b>Mathematical Derivation of FAT Size</b>: FAT systems require two redundant copies (FAT1 and FAT2). The algorithm locates the identical duplicate signature. The distance strictly equals:<br/>&nbsp;&nbsp;&nbsp;&nbsp;<b>Sectors Per FAT = LBA(FAT2) - LBA(FAT1)</b>", s["bullet"]))
-    story.append(Paragraph("3. <b>Root Directory Location</b>: In FAT12/16, the root directory immediately follows FAT2 (LBA = LBA(FAT2) + Secteurs per FAT). Its 32-byte records (8.3 filenames, LFN Unicode sequences, sizes, clusters) are decoded.", s["bullet"]))
-    story.append(Paragraph("4. <b>Dynamic Cluster Size Derivation (SPC)</b>: Cluster size is always a power of 2 (1, 2, 4, 8, 16, 32, 64 sectors). The engine takes discovered root files with cluster C &gt; 2, calculates their physical sector:<br/>&nbsp;&nbsp;&nbsp;&nbsp;<b>LBA = LBA(DataStart) + (C - 2) * SPC</b><br/>and probes the first 16 bytes. When file magic matches (JPEG <code>FF D8</code>, PDF <code>%PDF</code>, ZIP <code>PK</code>, OLE <code>D0 CF</code>), the cluster size is mathematically verified.", s["bullet"]))
+    story.append(Paragraph("• <b>Backup Boot Sector Failover (LBA 6)</b>: Under FAT32, the engine probes sector 6 (official OEM boot sector backup). If intact, original volume geometry is restored instantly without heuristic derivation.", s["bullet"]))
+    story.append(Paragraph("• <b>Mathematical Orphan BPB Reconstruction</b>: When both sectors 0 and 6 are destroyed:<br/>"
+        "&nbsp;&nbsp;&nbsp;&nbsp;1. Scans media descriptor bytes (<code>0xF8 / 0xF0</code>) to locate FAT1.<br/>"
+        "&nbsp;&nbsp;&nbsp;&nbsp;2. Computes: <b>Sectors Per FAT = LBA(FAT2) - LBA(FAT1)</b>.<br/>"
+        "&nbsp;&nbsp;&nbsp;&nbsp;3. Positions the Root Directory table immediately following FAT2.<br/>"
+        "&nbsp;&nbsp;&nbsp;&nbsp;4. Dynamically solves cluster size (SPC) by testing candidate offsets against real file signatures (JPEG, PDF, ZIP).", s["bullet"]))
 
-    story.append(Paragraph("B. Linux EXT2 / EXT3 / EXT4 & Double Indirect Defragmentation", s["h2"]))
+    story.append(Paragraph("B. Linux EXT2 / EXT3 / EXT4 & Extents Tree Architecture", s["h2"]))
     story.append(Paragraph(
-        "Linux EXT organizes storage into Block Groups. The primary superblock resides at offset 1,024 (LBA 2). "
-        "When the start of the disk is wiped (in attacks destroying the primary filesystem descriptors):",
+        "Linux EXT organizes storage into Block Groups. When the primary superblock is wiped (LBA 2) or files are fragmented:",
         s["body"]
     ))
-    story.append(Paragraph("• <b>Sparse Superblock Discovery</b>: EXT replicates the superblock and Block Group Descriptor (BGD) table across groups 1, 3, 5, 7, 9... The engine probes offset 8,389,632 (LBA 16,386) and sweeps up to 32 MB for magic <code>0xEF53</code>.", s["bullet"]))
-    story.append(Paragraph("• <b>Direct, Indirect & Double Indirect Resolution</b>: Each inode has 15 block pointers: 12 direct, 1 single indirect, 1 double indirect, 1 triple indirect. The engine traverses the entire tree and skips the 1,024-byte pointer metadata blocks interspersed throughout large fragmented files.", s["bullet"]))
-    story.append(Paragraph("• <b>Directory Slack Space Undelete</b>: When a file is unlinked under EXT2/3, its record is absorbed by the previous entry's <code>rec_len</code>. The engine parses this slack space to recover deleted filenames and original attributes.", s["bullet"]))
+    story.append(Paragraph("• <b>Sparse Superblock Discovery</b>: Automatically sweeps offset 8,389,632 (LBA 16,386) and group boundaries up to 32 MB to detect magic <code>0xEF53</code> and restore group descriptors.", s["bullet"]))
+    story.append(Paragraph("• <b>Full EXT4 Extents Support (magic <code>0xF30A</code>)</b>: Native traversal of the extent tree stored within modern 60-byte inode blocks. Recursively decodes index nodes (<code>depth &gt; 0</code>) and leaf extent descriptors (<code>ee_block</code>, <code>ee_start</code>, <code>ee_len</code>), ensuring bit-exact reassembly of multi-gigabyte fragmented files.", s["bullet"]))
+    story.append(Paragraph("• <b>Direct, Indirect & Double Indirect Pointer Resolution</b>: Chirurgical traversal of legacy Ext2/3 block trees, skipping 1,024-byte pointer metadata blocks interspersed throughout large files.", s["bullet"]))
+    story.append(Paragraph("• <b>Directory Slack Space Undelete</b>: Unlinked file records absorbed by active entries' <code>rec_len</code> are extracted with original names and metadata.", s["bullet"]))
 
-    story.append(Paragraph("C. Windows NTFS ($MFT & Data Runs)", s["h2"]))
+    story.append(Paragraph("C. Windows NTFS ($MFT, $MFTMirr & Backup VBR)", s["h2"]))
     story.append(Paragraph(
-        "Direct pure-Python <b>$MFT</b> parsing: 1,024-byte records starting with <code>FILE</code>, Update Sequence Array fixup validation, "
-        "<code>$STANDARD_INFORMATION</code> (quadruple MACB timestamps), <code>$FILE_NAME</code>, and <code>$DATA</code> resident vs non-resident runlist decoding.",
+        "Direct pure-Python <b>$MFT</b> parsing with critical failover mechanisms:",
+        s["body"]
+    ))
+    story.append(Paragraph("• <b>$MFTMirr Failover (cluster offset 0x38)</b>: When Record 0 of the primary $MFT is damaged or wiped, the engine fails over to <code>$MFTMirr</code> to recover non-resident <code>$DATA</code> runlists mapping the entire MFT across disk clusters.", s["bullet"]))
+    story.append(Paragraph("• <b>Backup VBR Resolution (Last Sector LBA N-1)</b>: When the partition boot sector is blank, BPB parameters (cluster size, record size, MFT cluster) are retrieved from the volume end.", s["bullet"]))
+    story.append(Paragraph("• <b>Transaction Log Carving ($LogFile) & Undelete</b>: Comprehensive reconstruction of active and deleted files with quadruple MACB timestamps ($STANDARD_INFORMATION).", s["bullet"]))
+
+    story.append(Paragraph("D. Native exFAT Engine (Main & Backup VBR)", s["h2"]))
+    story.append(Paragraph(
+        "Pure-Python forensic parser for flash and external storage media: "
+        "Backup VBR failover (sector 12), directory entry chain parsing (primary active <code>0x85</code> / deleted <code>0x05</code>, "
+        "stream extension <code>0xC0</code> with contiguous allocation flag <code>NoFatChain</code>, and Unicode name sequences <code>0xC1</code>). "
+        "Direct bit-exact extraction without third-party drivers.",
         s["body"]
     ))
 
-    story.append(Paragraph("D. Embedded & Unix Systems (QNX, APFS, LUKS, BitLocker)", s["h2"]))
+    story.append(Paragraph("E. Embedded & Unix Systems (QNX, APFS, LUKS, BitLocker)", s["h2"]))
     story.append(Paragraph(
         "• <b>QNX4 & QNX6 Power-Safe</b>: Automotive head units and embedded controllers via superblocks <code>0x68191122</code> at LBA 8192/11776 and transaction logs.<br/>"
         "• <b>Apple APFS</b>: Container Superblock <code>NXSB</code>, Object Map (OMAP) B-Tree traversal, and multi-volume container enumeration.<br/>"

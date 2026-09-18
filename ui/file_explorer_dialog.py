@@ -1,7 +1,7 @@
 """
-WipeRescue-Forensics - Explorateur de Fichiers Virtuel & MFT Undelete (Couche In-Memory COW)
+DFR-Forensics - Explorateur de Fichiers Virtuel & MFT Undelete (Couche In-Memory COW)
 Permet d'explorer l'arborescence des partitions réparées sans montage externe,
-de visualiser les fichiers actifs et supprimés (NTFS Undelete), de calculer les empreintes (MD5/SHA256)
+de visualiser les fichiers actifs et supprimés (NTFS Undelete, exFAT, FAT, EXT), de calculer les empreintes (MD5/SHA256)
 et d'extraire les artefacts avec intégrité médico-légale garantie.
 """
 
@@ -36,6 +36,7 @@ from core.scanner import ScanDiagnostic, GPTPartitionEntry
 from core.ntfs_reader import NTFSReader, NTFSFileEntry
 from core.fat_reader import FATReader, FATFileEntry
 from core.ext_reader import ExtReader, ExtFileEntry
+from core.exfat_reader import ExFATReader, ExFATFileEntry
 from core.qnx_reader import QNXReader, QNXFileEntry
 from core.apfs_reader import APFSReader, APFSFileEntry, APFSVolumeInfo
 from core.crypto_engine import EncryptedVolumeHandler
@@ -89,6 +90,7 @@ class VirtualExplorerDialog(QDialog):
         self.diag = diag
         self.current_ntfs: Optional[NTFSReader] = None
         self.current_fat: Optional[FATReader] = None
+        self.current_exfat: Optional[ExFATReader] = None
         self.current_ext: Optional[ExtReader] = None
         self.current_qnx: Optional[QNXReader] = None
         self.current_apfs: Optional[APFSReader] = None
@@ -517,7 +519,19 @@ class VirtualExplorerDialog(QDialog):
                 if "EXT" in chosen_fs.upper():
                     self.preview_text.setPlainText(f"Erreur d'analyse Ext : {e}")
 
-        # 3. Gestion FAT12 / FAT16 / FAT32
+        # 3. Gestion exFAT
+        if "EXFAT" in chosen_fs.upper() or boot_sig == b"EXFAT":
+            try:
+                part_size = p.total_sectors * self.reader.sector_size
+                exfat = ExFATReader(active_reader, partition_offset_bytes=active_offset, partition_size_bytes=part_size)
+                if exfat.is_valid_exfat and exfat.root_entry:
+                    self._populate_exfat_tree(exfat, p)
+                    return
+            except Exception as e:
+                if "EXFAT" in chosen_fs.upper():
+                    self.preview_text.setPlainText(f"Erreur d'analyse exFAT : {e}")
+
+        # 4. Gestion FAT12 / FAT16 / FAT32
         if boot_sig == b"FAT" or "FAT" in chosen_fs.upper() or (handler and handler.is_unlocked):
             try:
                 fat = FATReader(active_reader, partition_offset_bytes=active_offset)
@@ -628,6 +642,8 @@ class VirtualExplorerDialog(QDialog):
                 self._add_qnx_level(item, node)
             elif fs_type == "FAT" and node:
                 self._add_fat_level(item, node)
+            elif fs_type == "exFAT" and node:
+                self._add_exfat_level(item, node)
             elif fs_type == "EXT" and node:
                 self._add_ext_level(item, node)
             elif fs_type == "NTFS" and node:
@@ -845,11 +861,82 @@ class VirtualExplorerDialog(QDialog):
             f"Mode d'exploration           : Navigation virtuelle ultra-rapide (Lazy-Loading actif)",
         ]
         if fat.label_discrepancy:
-            summary_lines.append("\n⚠️ ALERTE MÉDICO-LÉGALE (DFTT Test #9) : Discordance détectée entre l'étiquette BPB et l'étiquette Racine !")
+            summary_lines.append("\n⚠️ ALERTE MÉDICO-LÉGALE : Discordance détectée entre l'étiquette BPB et l'étiquette Racine !")
         if fat.anomalies:
             summary_lines.append("\nAnomalies médico-légales identifiées :")
             for a in fat.anomalies:
                 summary_lines.append(f"  • {a}")
+        self.preview_text.setPlainText("\n".join(summary_lines))
+
+    # --- 3b. Gestionnaire exFAT ---
+    def _add_exfat_level(self, parent_item: QTreeWidgetItem, parent_entry: ExFATFileEntry):
+        try:
+            children = parent_entry.children
+        except Exception:
+            children = []
+        sorted_children = sorted(children, key=lambda e: (not e.is_dir, e.name.lower()))
+        for ch in sorted_children:
+            is_del = ch.is_deleted
+            status_str = t("explorer_status_deleted") if is_del else t("explorer_status_active")
+            type_str = f"📁 Dossier ({status_str})" if ch.is_dir else f"📄 Fichier ({status_str})"
+            size_str = "" if ch.is_dir else format_size(ch.size)
+            display_name = f"🗑️ {ch.name}" if is_del else ch.name
+
+            item = QTreeWidgetItem(parent_item, [
+                display_name,
+                size_str,
+                type_str,
+                ch.modified,
+                str(ch.first_cluster),
+            ])
+            item.setData(0, Qt.UserRole, ch)
+            item.setData(0, Qt.UserRole + 2, "exFAT")
+
+            if is_del:
+                item.setForeground(0, QBrush(QColor("#ff6b6b")))
+                item.setForeground(2, QBrush(QColor("#ffaa00")))
+            elif ch.is_dir:
+                item.setForeground(0, QBrush(QColor("#ffffff")))
+                item.setForeground(2, QBrush(QColor("#3498db")))
+            else:
+                item.setForeground(0, QBrush(QColor("#ffffff")))
+                item.setForeground(2, QBrush(QColor("#2ecc71")))
+
+            if ch.is_dir:
+                item.setData(0, Qt.UserRole + 1, False)
+                dummy = QTreeWidgetItem(item, ["Chargement...", "", "", "", ""])
+                dummy.setData(0, Qt.UserRole, None)
+            else:
+                item.setData(0, Qt.UserRole + 1, True)
+
+            self.all_tree_items.append(item)
+
+    def _populate_exfat_tree(self, exfat: ExFATReader, p: GPTPartitionEntry):
+        """Construit le QTreeWidget avec l'arborescence exFAT (Lazy-Loading)."""
+        self.current_exfat = exfat
+        root_node = exfat.root_entry
+        root_label = f"/ [exFAT Root: {exfat.volume_label or p.name or 'Volume'}]"
+        root_item = QTreeWidgetItem(self.tree, [root_label, "", "Racine exFAT", "", str(exfat.root_dir_cluster)])
+        root_item.setData(0, Qt.UserRole, root_node)
+        root_item.setData(0, Qt.UserRole + 1, True)
+        root_item.setData(0, Qt.UserRole + 2, "exFAT")
+        self.all_tree_items.append(root_item)
+
+        if root_node:
+            self._add_exfat_level(root_item, root_node)
+        root_item.setExpanded(True)
+
+        summary_lines = [
+            "=== SYSTÈME DE FICHIERS exFAT FORENSIQUE ===",
+            f"Nom de Volume                : '{exfat.volume_label or 'N/A'}'",
+            f"Taille de secteur            : {exfat.bytes_per_sector} octets",
+            f"Taille de cluster            : {exfat.cluster_size} octets ({exfat.sectors_per_cluster} secteurs)",
+            f"Cluster Racine               : #{exfat.root_dir_cluster}",
+            f"Total Entrées Répertoire     : {len(exfat.all_entries)}",
+            f"Fichiers Supprimés (Undelete): {sum(1 for e in exfat.all_entries if e.is_deleted)}",
+            f"Source VBR                   : {'Secteur 12 (Backup VBR)' if exfat.used_backup_vbr else 'Secteur 0 (Main VBR)'}",
+            "Mode d'exploration           : Navigation virtuelle ultra-rapide (Lazy-Loading actif)",
+        ]
         self.preview_text.setPlainText("\n".join(summary_lines))
 
     # --- 4. Gestionnaire Linux Ext ---
@@ -1176,7 +1263,7 @@ class VirtualExplorerDialog(QDialog):
 
             anomaly_alert = ""
             if entry.is_hidden_volume_file:
-                anomaly_alert = "\n⚠️ ANOMALIE FORENSIQUE (DFTT Test #9) : Fichier dissimulé sous attribut 0x08 (Volume Label) avec clusters alloués !\n"
+                anomaly_alert = "\n⚠️ ANOMALIE FORENSIQUE : Fichier dissimulé sous attribut 0x08 (Volume Label) avec clusters alloués !\n"
 
             meta_header = (
                 f"=== MÉTADONNÉES FORENSIQUES DU FICHIER (FAT) ===\n\n"
@@ -1188,6 +1275,28 @@ class VirtualExplorerDialog(QDialog):
                 f"Horodatage Modifié  : {entry.modified or 'N/A'}\n"
                 f"Horodatage Accès    : {entry.accessed or 'N/A'}\n"
                 f"{anomaly_alert}\n"
+                f"Empreinte MD5    : {md5_hash}\n"
+                f"Empreinte SHA-256: {sha256_hash}\n\n"
+                f"--------------------------------------------------------------------------------\n"
+            )
+        elif isinstance(entry, ExFATFileEntry):
+            if self.current_exfat:
+                content = self.current_exfat.extract_file_content(entry)
+            size = entry.size
+            if content:
+                md5_hash = hashlib.md5(content).hexdigest()
+                sha256_hash = hashlib.sha256(content).hexdigest()
+
+            meta_header = (
+                f"=== MÉTADONNÉES FORENSIQUES DU FICHIER (exFAT) ===\n\n"
+                f"Nom de fichier : {entry.name}\n"
+                f"Premier Cluster: #{entry.first_cluster}\n"
+                f"Allocation     : {'Contiguë (NoFATChain)' if entry.is_contiguous else 'Chaînée via FAT'}\n"
+                f"Statut : {'🗑️ SUPPRIMÉ / EFFACÉ (Undelete)' if entry.is_deleted else '✔️ ACTIF'}\n"
+                f"Taille Réelle : {entry.size:,} octets ({format_size(entry.size)})\n"
+                f"Horodatage Création : {entry.created or 'N/A'}\n"
+                f"Horodatage Modifié  : {entry.modified or 'N/A'}\n"
+                f"Horodatage Accès    : {entry.accessed or 'N/A'}\n\n"
                 f"Empreinte MD5    : {md5_hash}\n"
                 f"Empreinte SHA-256: {sha256_hash}\n\n"
                 f"--------------------------------------------------------------------------------\n"
@@ -1348,7 +1457,7 @@ class VirtualExplorerDialog(QDialog):
             return
 
         # 1. Cas spécifique AD1 : streaming par blocs de 1 Mo pour supporter les fichiers de plusieurs Go
-        if not isinstance(entry, (NTFSFileEntry, FATFileEntry, ExtFileEntry, QNXFileEntry, APFSFileEntry)):
+        if not isinstance(entry, (NTFSFileEntry, FATFileEntry, ExtFileEntry, QNXFileEntry, APFSFileEntry, ExFATFileEntry)):
             hasher_md5 = hashlib.md5()
             hasher_sha = hashlib.sha256()
             total_written = 0
@@ -1382,6 +1491,9 @@ class VirtualExplorerDialog(QDialog):
         elif isinstance(entry, FATFileEntry):
             if self.current_fat:
                 content = self.current_fat.extract_file_content(entry)
+        elif isinstance(entry, ExFATFileEntry):
+            if self.current_exfat:
+                content = self.current_exfat.extract_file_content(entry)
         elif isinstance(entry, ExtFileEntry):
             if self.current_ext:
                 content = self.current_ext.extract_file_content(entry)

@@ -1,6 +1,6 @@
 """
-WipeRescue-Forensics - Moteur Forensique NTFS & MFT Undelete
-Analyse en profondeur les structures NTFS (VBR, $MFT, attributs resident/non-resident),
+DFR-Forensics - Moteur Forensique NTFS & MFT Undelete
+Analyse en profondeur les structures NTFS (VBR, $MFT, $MFTMirr, attributs resident/non-resident),
 carve les enregistrements du journal de transactions ($LogFile) et des espaces non alloués,
 reconstitue l'arborescence complète des fichiers actifs et supprimés (y compris répertoires réalloués),
 et permet l'extraction directe des fichiers sans montage externe.
@@ -60,16 +60,20 @@ class NTFSFileEntry:
 class NTFSReader:
     """Lecteur forensique pur-Python de partition NTFS avec carver de journal ($LogFile) et Undelete."""
 
-    def __init__(self, reader: ForensicImageReader, partition_offset_bytes: int = 0):
+    def __init__(self, reader: ForensicImageReader, partition_offset_bytes: int = 0, partition_size_bytes: int = 0):
         self.reader = reader
         self.part_offset = partition_offset_bytes
+        self.part_size = partition_size_bytes or (reader.total_size_bytes - partition_offset_bytes)
         self.is_valid_ntfs: bool = False
+        self.used_backup_vbr: bool = False
+        self.used_mft_mirror: bool = False
 
         self.bytes_per_sector: int = 512
         self.sectors_per_cluster: int = 8
         self.cluster_size: int = 4096
         self.total_sectors: int = 0
         self.mft_cluster: int = 0
+        self.mftmirr_cluster: int = 0
         self.record_size: int = 1024
 
         self.all_entries: List[NTFSFileEntry] = []
@@ -83,16 +87,30 @@ class NTFSReader:
     def _read_vbr(self):
         sector_lba = self.part_offset // self.reader.sector_size
         vbr = self.reader.read_sector(sector_lba, count=1)
-        if len(vbr) < 512 or vbr[3:11] != b"NTFS    ":
-            self.is_valid_ntfs = False
+        if len(vbr) >= 512 and vbr[3:11] == b"NTFS    ":
+            self._parse_vbr_data(vbr)
             return
 
+        # Secours NTFS : Le Backup VBR se trouve au dernier secteur du volume (LBA N-1)
+        if self.part_size > 0:
+            last_lba = (self.part_offset + self.part_size) // self.reader.sector_size - 1
+            if last_lba > sector_lba:
+                b_vbr = self.reader.read_sector(last_lba, count=1)
+                if len(b_vbr) >= 512 and b_vbr[3:11] == b"NTFS    ":
+                    self.used_backup_vbr = True
+                    self._parse_vbr_data(b_vbr)
+                    return
+
+        self.is_valid_ntfs = False
+
+    def _parse_vbr_data(self, vbr: bytes):
         self.is_valid_ntfs = True
         self.bytes_per_sector = struct.unpack_from("<H", vbr, 0x0B)[0]
         self.sectors_per_cluster = vbr[0x0D]
         self.cluster_size = self.bytes_per_sector * self.sectors_per_cluster
         self.total_sectors = struct.unpack_from("<Q", vbr, 0x28)[0]
         self.mft_cluster = struct.unpack_from("<q", vbr, 0x30)[0]
+        self.mftmirr_cluster = struct.unpack_from("<q", vbr, 0x38)[0]
 
         clusters_per_record = struct.unpack_from("<b", vbr, 0x40)[0]
         if clusters_per_record < 0:
@@ -254,6 +272,16 @@ class NTFSReader:
         sectors_per_rec = (self.record_size + self.reader.sector_size - 1) // self.reader.sector_size
         rec0_raw = self.reader.read_sector(mft_start_lba, count=sectors_per_rec)[: self.record_size]
 
+        # Failover vers $MFTMirr si le Record 0 de la $MFT principale est effacé ou corrompu
+        if not rec0_raw.startswith(b"FILE"):
+            if self.mftmirr_cluster > 0:
+                mirr_byte_offset = self.part_offset + self.mftmirr_cluster * self.cluster_size
+                mirr_start_lba = mirr_byte_offset // self.reader.sector_size
+                mirr_rec0_raw = self.reader.read_sector(mirr_start_lba, count=sectors_per_rec)[: self.record_size]
+                if mirr_rec0_raw.startswith(b"FILE"):
+                    rec0_raw = mirr_rec0_raw
+                    self.used_mft_mirror = True
+
         if not rec0_raw.startswith(b"FILE"):
             return
 
@@ -264,6 +292,14 @@ class NTFSReader:
 
         seen_keys: Set[Tuple[int, str]] = set()
         current_record_idx = 0
+
+        # Si nous avons utilisé $MFTMirr, enregistrer le Record 0 du miroir
+        if self.used_mft_mirror:
+            entry0 = self._parse_single_record(rec0_raw, 0)
+            if entry0 and entry0.name:
+                key = (entry0.record_number, entry0.name)
+                seen_keys.add(key)
+                self.all_entries.append(entry0)
 
         # 1. Lecture ordonnée des runs primaires de la $MFT
         for lcn, cluster_count in mft_runs:

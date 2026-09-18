@@ -1,7 +1,7 @@
 """
-WipeRescue-Forensics - Moteur Forensique Pur-Python Ext2 / Ext3 / Ext4
+DFR-Forensics - Moteur Forensique Pur-Python Ext2 / Ext3 / Ext4
 Permet le décodage du Superblock (offset 1024), de la table des descripteurs de groupes,
-des inodes et de l'arborescence complète, sans dépendance externe.
+des inodes, de l'arbre d'extents EXT4 (magic 0xF30A) et de l'arborescence complète, sans dépendance externe.
 """
 
 import struct
@@ -37,6 +37,8 @@ class ExtFileEntry:
         self.modified: str = ""
         self.accessed: str = ""
         self.blocks: List[int] = []
+        self.extents: List[Tuple[int, int, int]] = []
+        self.use_extents: bool = False
         self.parent_entry: Optional["ExtFileEntry"] = None
         self.children: List["ExtFileEntry"] = []
 
@@ -164,6 +166,39 @@ class ExtReader:
                 "inode_table": bg_inode_table,
             })
 
+    def _parse_extent_tree(self, extent_chunk: bytes) -> List[Tuple[int, int, int]]:
+        """Décode un arbre d'extents EXT4 (magic 0xF30A). Retourne des tuples (logical_blk, phys_blk, count)."""
+        if len(extent_chunk) < 12:
+            return []
+        magic, entries_cnt, max_cnt, depth = struct.unpack_from("<HHHH", extent_chunk, 0)
+        if magic != 0xF30A:
+            return []
+
+        results: List[Tuple[int, int, int]] = []
+        if depth == 0:
+            # Feuilles d'extents directes
+            for i in range(entries_cnt):
+                offset = 12 + i * 12
+                if offset + 12 > len(extent_chunk):
+                    break
+                ee_block, ee_len, ee_start_hi, ee_start_lo = struct.unpack_from("<IHHI", extent_chunk, offset)
+                phys_blk = (ee_start_hi << 32) | ee_start_lo
+                actual_len = ee_len if ee_len <= 32768 else (ee_len - 32768)
+                results.append((ee_block, phys_blk, actual_len))
+        else:
+            # Nœuds d'index intermédiaires
+            for i in range(entries_cnt):
+                offset = 12 + i * 12
+                if offset + 12 > len(extent_chunk):
+                    break
+                ei_block, ei_leaf_lo, ei_leaf_hi = struct.unpack_from("<IIH", extent_chunk, offset)
+                child_blk = (ei_leaf_hi << 32) | ei_leaf_lo
+                if child_blk > 0:
+                    child_bytes = self.reader.read_bytes(self.part_offset + child_blk * self.block_size, self.block_size)
+                    results.extend(self._parse_extent_tree(child_bytes))
+
+        return sorted(results, key=lambda x: x[0])
+
     def _read_inode(self, inode_num: int) -> Optional[Tuple[Dict[str, Any], List[int]]]:
         if inode_num < 1 or inode_num > self.inodes_count:
             return None
@@ -191,8 +226,15 @@ class ExtReader:
         i_gid = struct.unpack_from("<H", raw_inode, 24)[0]
         i_links = struct.unpack_from("<H", raw_inode, 26)[0]
 
-        # 15 pointeurs de blocs (12 directs, 1 simple indirect, 1 double indirect, 1 triple indirect)
-        block_pointers = list(struct.unpack("<15I", raw_inode[40:100]))
+        i_flags = struct.unpack_from("<I", raw_inode, 32)[0] if len(raw_inode) >= 36 else 0
+        use_extents = bool(i_flags & 0x00080000) or (len(raw_inode) >= 42 and raw_inode[40:42] == b"\x0a\xf3")
+        extents: List[Tuple[int, int, int]] = []
+        if use_extents:
+            extents = self._parse_extent_tree(raw_inode[40:100])
+            block_pointers = [e[1] for e in extents]
+        else:
+            # 15 pointeurs de blocs (12 directs, 1 simple indirect, 1 double indirect, 1 triple indirect)
+            block_pointers = list(struct.unpack("<15I", raw_inode[40:100]))
 
         meta = {
             "mode": i_mode,
@@ -207,12 +249,30 @@ class ExtReader:
             "is_dir": bool(i_mode & 0x4000),
             "is_file": bool(i_mode & 0x8000),
             "is_deleted": (i_dtime != 0) or (i_links == 0),
+            "use_extents": use_extents,
+            "extents": extents,
         }
         return meta, block_pointers
 
-    def _read_file_blocks(self, block_pointers: List[int], file_size: int) -> bytes:
+    def _read_file_blocks(self, block_pointers: List[int], file_size: int, extents: Optional[List[Tuple[int, int, int]]] = None) -> bytes:
         data = bytearray()
         needed_bytes = file_size
+
+        # Mode EXT4 Extents
+        if extents:
+            for l_blk, p_blk, count in extents:
+                if len(data) >= needed_bytes:
+                    break
+                read_len = count * self.block_size
+                if p_blk == 0:
+                    data.extend(b"\x00" * min(needed_bytes - len(data), read_len))
+                else:
+                    off = self.part_offset + p_blk * self.block_size
+                    chunk = self.reader.read_bytes(off, read_len)
+                    data.extend(chunk)
+                if len(data) >= needed_bytes:
+                    return bytes(data[:needed_bytes])
+            return bytes(data[:needed_bytes])
 
         # 1. 12 Blocs directs
         for blk in block_pointers[:12]:
@@ -302,7 +362,7 @@ class ExtReader:
         if not res:
             return []
         meta, ptrs = res
-        dir_data = self._read_file_blocks(ptrs, meta["size"])
+        dir_data = self._read_file_blocks(ptrs, meta["size"], extents=meta.get("extents"))
 
         entries: List[ExtFileEntry] = []
         slack_deleted_names: List[Tuple[int, str]] = []
@@ -353,6 +413,8 @@ class ExtReader:
             entry.modified = unix_timestamp_to_iso(c_meta["mtime"])
             entry.accessed = unix_timestamp_to_iso(c_meta["atime"])
             entry.blocks = c_ptrs
+            entry.extents = c_meta.get("extents", [])
+            entry.use_extents = c_meta.get("use_extents", False)
             entry.parent_entry = parent_entry
 
             entries.append(entry)
@@ -394,6 +456,8 @@ class ExtReader:
                     del_entry.modified = unix_timestamp_to_iso(matched_meta["mtime"])
                     del_entry.accessed = unix_timestamp_to_iso(matched_meta["atime"])
                     del_entry.blocks = matched_ptrs
+                    del_entry.extents = matched_meta.get("extents", [])
+                    del_entry.use_extents = matched_meta.get("use_extents", False)
                     del_entry.parent_entry = parent_entry
 
                     entries.append(del_entry)
@@ -403,7 +467,7 @@ class ExtReader:
 
     def _parse_tree(self):
         root = ExtFileEntry(2)
-        root.name = f"/ [Ext2/Ext3 Root - {self.volume_name or 'Linux'}]"
+        root.name = f"/ [Ext2/Ext3/Ext4 Root - {self.volume_name or 'Linux'}]"
         root.is_dir = True
         self.root_entry = root
 
@@ -411,6 +475,8 @@ class ExtReader:
         if root_res:
             r_meta, r_ptrs = root_res
             root.blocks = r_ptrs
+            root.extents = r_meta.get("extents", [])
+            root.use_extents = r_meta.get("use_extents", False)
             root.size = r_meta["size"]
             root.created = unix_timestamp_to_iso(r_meta["ctime"])
             root.modified = unix_timestamp_to_iso(r_meta["mtime"])
@@ -419,6 +485,10 @@ class ExtReader:
 
     def extract_file_content(self, entry: ExtFileEntry) -> bytes:
         """Extrait le contenu d'un fichier Ext2/3/4."""
-        if entry.is_dir or not entry.blocks:
+        if entry.is_dir:
+            return b""
+        if entry.use_extents and entry.extents:
+            return self._read_file_blocks(entry.blocks, entry.size, extents=entry.extents)
+        if not entry.blocks:
             return b""
         return self._read_file_blocks(entry.blocks, entry.size)

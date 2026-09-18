@@ -2,7 +2,7 @@
 ### *Disk & File Resurrection*
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version: v2.5.0](https://img.shields.io/badge/Version-v2.5.0-blue.svg)](https://github.com/Dam-FOR3K/DFR-Forensics)
+[![Version: v2.6.0](https://img.shields.io/badge/Version-v2.6.0-blue.svg)](https://github.com/Dam-FOR3K/DFR-Forensics)
 [![Author: Dam--FOR3K](https://img.shields.io/badge/Author-Dam--FOR3K-orange.svg)](https://github.com/Dam-FOR3K)
 [![Python: 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![GUI: PySide6](https://img.shields.io/badge/GUI-PySide6%20%2F%20Qt6-brightgreen.svg)](https://wiki.qt.io/Qt_for_Python)
@@ -27,21 +27,24 @@ When storage media suffer destructive wiper attacks (*HermeticWiper*, *CaddyWipe
 * **Protective MBR Synthesis**: Generates a valid type `0xEE` Protective MBR at `LBA 0` with the `0x55AA` boot signature.
 * **DOS MBR & EBR Linked Chains**: Traverses complex extended partition hierarchies (*Extended Boot Records*) with nested logical drives and unallocated gaps.
 
-### 2. Autonomous Orphan BPB Reconstruction (FAT12 / FAT16 / FAT32)
-* When **LBA 0 (Boot Sector / VBR)** is completely wiped with zeroes (e.g. following destructive wiper attacks or corrupted partition tables), the tool does not fail:
+### 2. Autonomous Orphan BPB & Backup Boot Sector (FAT12 / FAT16 / FAT32)
+* **Official Backup Boot Sector Failover**: In FAT32, automatically detects and loads the OEM replica boot sector at LBA 6 if LBA 0 has been wiped or corrupted.
+* **Mathematical Orphan BPB Reconstruction**: When both LBA 0 and backup sectors are destroyed:
   * **Media Descriptor Discovery**: Scans early sectors for the first FAT table (FAT1) matching media byte `0xF8` / `0xF0` and chain headers.
   * **Mathematical FAT Size Derivation**: Locates the redundant FAT2 copy and computes $\text{Sectors Per FAT} = \text{LBA}(\text{FAT}_2) - \text{LBA}(\text{FAT}_1)$.
   * **Root Directory Positioning**: Maps root directory records immediately following FAT2.
   * **Dynamic Cluster Size (SPC) Derivation**: Tests candidate power-of-2 cluster sizes against root directory entries and validates candidate sector offsets against file headers (JPEG `FF D8`, PDF `%PDF`, ZIP `PK`, OLE `D0 CF`).
   * Reconstructs the complete virtual BPB in memory, exposing all active and deleted files in the Virtual File Explorer.
 
-### 3. Linux EXT2 / EXT3 / EXT4 Defragmentation & Slack Recovery
+### 3. Linux EXT2 / EXT3 / EXT4 Extents & Slack Recovery
 * **Sparse Superblock Recovery**: Discovers backup superblocks at LBA 16,386 (`0xEF53`) and alternate group boundaries when the primary superblock at offset 1,024 is zeroed out.
-* **Double Indirect Pointer Resolution**: Decodes the entire block pointer tree (12 direct, single indirect, and double indirect pointer 13), surgically defragmenting large multi-megabyte files by skipping 1,024-byte metadata pointer blocks.
+* **EXT4 Extents Tree Support**: Full native parsing of EXT4 extent headers (`magic 0xF30A`), extent index nodes, and leaf extents, correctly reassembling fragmented and multi-gigabyte files.
+* **Double Indirect Pointer Resolution**: Decodes legacy Ext2/3 block pointer trees (12 direct, single indirect, and double indirect pointer 13) without external tooling.
 * **Directory Slack Space Undelete**: Scans residual slack space inside directory entry records (`rec_len`) to extract and reconstruct unlinked deleted files with original names and attributes.
 
 ### 4. Pure-Python Filesystem Parsers
-* **NTFS $MFT & Undelete**: Direct pure-Python parser reading `$MFT` 1,024-byte records, Update Sequence Array fixups, `$STANDARD_INFORMATION` (quadruple MACB timestamps), `$FILE_NAME`, and `$DATA` resident vs non-resident runlists.
+* **NTFS $MFT, $MFTMirr & Undelete**: Direct pure-Python parser reading `$MFT` 1,024-byte records, Update Sequence Array fixups, `$STANDARD_INFORMATION` (quadruple MACB timestamps), `$FILE_NAME`, and `$DATA` resident vs non-resident runlists. Automatic failover to `$MFTMirr` (offset `0x38`) when Record 0 is damaged, and Backup VBR resolution at volume end ($LBA\ N-1$).
+* **Native exFAT Engine**: Pure-Python implementation with Backup VBR (sector 12) failover, directory entry chain parsing (`0x85` File, `0xC0` Stream Extension, `0xC1` File Name), contiguous and FAT-chained cluster resolution, and deleted file undelete.
 * **Apple APFS**: Parses `NXSB` Container Superblocks, Object Map (OMAP) B-Trees, and enumerates volumes.
 * **QNX4 & QNX6 Power-Safe**: Multi-generation superblocks (`0x68191122`), transaction logs, and inode trees from automotive head units and IoT controllers.
 * **BitLocker & LUKS1/2**: Transparent in-memory cryptographic engine unlocking volumes via recovery password, passphrase, or raw key files.
@@ -83,7 +86,9 @@ When storage media suffer destructive wiper attacks (*HermeticWiper*, *CaddyWipe
 
 | Forensic Corruption Scenario | Target Filesystem | Applied Destruction Pattern | Recovery Engine Action | Hash Integrity |
 | :--- | :--- | :--- | :--- | :---: |
-| **Severed Boot Sector (VBR)** | FAT16 / FAT32 | LBA 0 wiped (zeros), partition table destroyed | Autonomous BPB derivation via FAT mirror & cluster correlation | 🟢 **100% Bit-Exact Recovery** |
+| **Severed Boot Sector (VBR)** | FAT16 / FAT32 / exFAT | LBA 0 wiped (zeros), partition table destroyed | Backup Boot Sector failover & autonomous BPB derivation | 🟢 **100% Bit-Exact Recovery** |
+| **Damaged $MFT Record 0** | NTFS | Sector 0 MFT corrupted or zeroed | `$MFTMirr` (cluster 0x38) Data Runs fallback & Backup VBR | 🟢 **100% Tree Reconstruction** |
+| **Fragmented Large Files** | Linux EXT4 | Non-contiguous multi-GB files | Inode Extent Tree parsing (`0xF30A`) across depth levels | 🟢 **100% Bit-Exact Recovery** |
 | **Severed Primary Superblock** | Linux EXT2 / EXT3 / EXT4 | Superblock wiped, deleted directory slack space | Backup superblock failover & double-indirect defragmentation | 🟢 **100% Bit-Exact Recovery** |
 | **Volume Label Steganography** | FAT12 / FAT16 / FAT32 | Payload concealed under Volume Label attribute `0x08` | Automated anomaly detection & directory attribute carving | 🟢 **100% File Integrity** |
 | **Fragmented Partition Chains** | DOS MBR / Extended EBR | Fragmented EBR linked list with unallocated gaps | Deep recursive traversal & unallocated gap recovery | 🟢 **100% Tree Reconstruction** |
@@ -106,7 +111,8 @@ DFR-Forensics/
 │   ├── crypto_engine.py        # LUKS1/2 & BitLocker in-memory decryption
 │   ├── ntfs_reader.py          # Pure-Python NTFS parser & MFT undelete
 │   ├── fat_reader.py           # FAT12/16/32 parser & autonomous orphan BPB reconstruction
-│   ├── ext_reader.py           # Ext2/Ext3/Ext4 parser, backup superblock & double-indirect defragmenter
+│   ├── exfat_reader.py         # Pure-Python exFAT parser, Backup VBR & stream resolution
+│   ├── ext_reader.py           # Ext2/Ext3/Ext4 parser, extents tree & double-indirect defragmenter
 │   ├── qnx_reader.py           # QNX4 & QNX6 Power-Safe parser
 │   ├── apfs_reader.py          # Apple APFS container & volume reader
 │   ├── partition_exporter.py   # Streaming exporter with live MD5 & SHA-256
@@ -178,5 +184,5 @@ The graphical user interface supports **English** and **Français** out of the b
 
 ## 📄 License & Author
 * **Author**: Dam-FOR3K
-* **Version**: v2.5.0
+* **Version**: v2.6.0
 * **License**: MIT License. See [LICENSE](LICENSE) for details.

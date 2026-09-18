@@ -1,6 +1,6 @@
 """
-WipeRescue-Forensics - Moteur Forensique Pur-Python FAT12 / FAT16 / FAT32
-Supporte le décodage des BPB, la détection des discordances d'étiquettes (Test DFTT #9),
+DFR-Forensics - Moteur Forensique Pur-Python FAT12 / FAT16 / FAT32
+Supporte le décodage des BPB, la détection des discordances d'étiquettes,
 l'extraction des fichiers cachés sous attribut 0x08, le décodage LFN et l'undelete FAT.
 """
 
@@ -59,6 +59,7 @@ class FATReader:
         self.reader = reader
         self.part_offset = partition_offset_bytes
         self.is_valid_fat = False
+        self.used_backup_boot_sector: bool = False
         self.fat_type: str = ""  # FAT12, FAT16, FAT32
 
         # BPB Geometry
@@ -72,7 +73,7 @@ class FATReader:
         self.root_cluster: int = 2
         self.data_start_offset: int = 0
 
-        # Labels & Anomalies (DFTT Test #9)
+        # Labels & Anomalies
         self.bpb_label: str = ""
         self.root_label: str = ""
         self.label_discrepancy: bool = False
@@ -175,6 +176,7 @@ class FATReader:
                     self.root_cluster = struct.unpack_from("<I", s6, 0x2C)[0]
                     self.bpb_label = s6[0x47 : 0x47 + 11].decode("latin1", "replace").strip()
                     self.fat_type = "FAT32"
+                    self.used_backup_boot_sector = True
                     self.data_start_offset = self.part_offset + (self.reserved_sectors + self.num_fats * self.fat_size_sectors) * self.bytes_per_sector
                     self.is_valid_fat = True
                     return

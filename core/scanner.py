@@ -1,5 +1,5 @@
 """
-WipeRescue-Forensics - Moteur de scan, diagnostic et carver de signatures
+DFR-Forensics - Moteur de scan, diagnostic et carver de signatures
 Détecte l'état du MBR, de la GPT primaire, de la GPT secondaire,
 la frontière exacte du wipe et les conteneurs/FS survivants.
 """
@@ -37,11 +37,14 @@ KNOWN_SIGNATURES = [
     (4096, b"\x68\x19\x11\x22", "QNX6 Power-Safe Filesystem"),
     (512, b"/\x00", "QNX4 Filesystem Root Directory"),
     (0, b"XFSB", "XFS Filesystem"),
+    # Signatures de secours (Backup Boot Sectors)
+    (3072 + 82, b"FAT32   ", "FAT32 Filesystem (Backup Boot Sector)"),
+    (6144 + 3, b"EXFAT   ", "exFAT Filesystem (Backup VBR)"),
 ]
 
 
 def identify_fs_signature(sector_data: bytes) -> Optional[str]:
-    """Inspecte un ou deux secteurs de début de partition pour identifier le format."""
+    """Inspecte un ou plusieurs secteurs de début de partition pour identifier le format."""
     if len(sector_data) >= 512:
         first_512 = sector_data[:512]
         # BitLocker : vérification prioritaire des GUIDs Microsoft BDE/EOW ou signature Vista -FVE-FS-
@@ -84,6 +87,14 @@ def detect_all_filesystems(sample_data: bytes) -> List[str]:
             detected.append("APFS")
         elif sample_data[:4] == b"\xeb\x10\x90\x00":
             detected.append("QNX6")
+
+    # Vérification des secteurs de secours si le secteur 0 a été effacé
+    if len(sample_data) >= 3072 + 90:
+        if sample_data[3072 + 82 : 3072 + 90] == b"FAT32   " and "FAT32" not in detected:
+            detected.append("FAT32")
+    if len(sample_data) >= 6144 + 11:
+        if sample_data[6144 + 3 : 6144 + 11] == b"EXFAT   " and "exFAT" not in detected:
+            detected.append("exFAT")
 
     # QNX6 Power-Safe Superblock (magic 0x68191122 aux offsets 8192, 11776 et 4096, LE ou BE)
     if len(sample_data) >= 8192 + 4:
