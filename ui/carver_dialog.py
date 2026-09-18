@@ -9,7 +9,7 @@ import io
 import csv
 import json
 import hashlib
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 
 from PySide6.QtWidgets import (
     QDialog,
