@@ -295,3 +295,35 @@ def test_smart_carver_auto_unaligned_fallback():
     art = arts[0]
     assert art.start_offset == 17
     assert art.file_type == "BMP"
+
+
+def test_validate_gif_exact_block_parsing():
+    """Vérifie que validate_gif parse exactement les blocs GIF jusqu'au trailer 0x3B sans déborder."""
+    # Créer un vrai GIF avec Pillow
+    img = Image.new("P", (128, 64), color=1)
+    out = io.BytesIO()
+    img.save(out, format="GIF")
+    gif_bytes = out.getvalue()
+
+    # Entourer le GIF de texte parasite contenant des points-virgules
+    noise_after = b"Some; dummy; text; with; semicolons; " + b"X" * 1024
+    disk_data = gif_bytes + noise_after
+    reader = MockBytesReader(disk_data)
+
+    from core.carver import validate_gif
+    res = validate_gif(reader, 0)
+    assert res is not None
+    length, meta, is_frag = res
+    assert length == len(gif_bytes), f"Attendu {len(gif_bytes)}, obtenu {length}"
+    assert meta["width"] == 128
+    assert meta["height"] == 64
+    assert meta["file_type"] == "GIF"
+    assert is_frag is False
+
+
+def test_smart_carver_debraid_disabled_by_default():
+    """Vérifie que le dé-tressage est bien désactivé par défaut pour préserver l'intégrité des fichiers."""
+    reader = MockBytesReader(b"\x00" * 1024)
+    carver = SmartCarver(reader)
+    assert carver.enable_debraid is False
+

@@ -49,20 +49,24 @@ When storage media suffer destructive wiper attacks (*HermeticWiper*, *CaddyWipe
 * **QNX4 & QNX6 Power-Safe**: Multi-generation superblocks (`0x68191122`), transaction logs, and inode trees from automotive head units and IoT controllers.
 * **BitLocker & LUKS1/2**: Transparent in-memory cryptographic engine unlocking volumes via recovery password, passphrase, or raw key files.
 
-### 5. Intelligent Carving Engine, TIFF 6.0 & De-Braiding (NIST CFTT)
+### 5. Intelligent Carving Engine, Alignment Strategies & Controlled De-Braiding
 * **Format-Specific Mathematical Validation**:
-  * **TIFF 6.0**: Native Little-Endian (`II*\x00`) and Big-Endian (`MM\x00*`) Image File Directory (IFD) parser, calculating exact physical extent via Strip/Tile ByteCounts and tag arrays.
+  * **TIFF 6.0**: Native Little-Endian (`II*\x00`) and Big-Endian (`MM\x00*`) Image File Directory (IFD) parser, calculating exact physical extent via Strip/Tile ByteCounts and tag arrays, with strict embedded JPEG EXIF filtering.
   * **JPEG**: Sequential marker parsing (SOF, DQT, DHT, SOS), MCU block verification, and strict EOI `FF D9` search.
   * **PNG**: Resilient chunk parsing with IEEE 802.3 CRC-32 verification and graceful recovery on fragmented streams.
   * **BMP**: DIB v1 to v5 headers (12, 40, 52, 56, 64, 108, 124 bytes) and little-endian filesize verification from header bytes 2..5.
-  * **GIF**: Logical Screen Descriptor validation and traversal to terminator `0x3B`.
+  * **GIF (GIF87a / GIF89a)**: Full block-level traversal through extension blocks (`0x21`), Image Descriptors (`0x2C`), and LZW sub-blocks down to the legitimate trailer (`0x3B`), ensuring byte-exact boundary recovery without false-positive semicolons.
   * **OLE CFBF (DOC, XLS, PPT)**: Internal FAT traversal across sectors to compute exact physical file length.
   * **PDF**: Bounded forward scanning strictly limited to the nearest `%%EOF` marker.
   * **ZIP / Office XML**: Local File Header chaining and validation against Central Directory records.
-* **In-Memory De-Braiding Engine (`BraidResolver`)**:
-  * Automatically detects interleaved file pairs `[Part 1A, Part 1B, Part 2A, Part 2B]`.
-  * Performs spiral mathematical delta search around split boundaries to disentangle interleaved streams without Frankenstein pixel corruption.
-  * 100% compliant with the official NIST CFTT Graphic Carving benchmark suite.
+* **Strategic Sector Alignment & Sweep Modes**:
+  * **512 bytes (Standard sectors - Recommended)**: Ultra-fast physical sector-aligned sweep for drives, SSDs, and USB storage.
+  * **1 byte (Exhaustive / Any offset - Shifted files)**: Surgical byte-by-byte sweep capable of recovering shifted files starting at arbitrary offsets (RAM dumps, raw memory artifacts, unsynchronized disks).
+  * **4,096 bytes (Standard clusters)**: Accelerated cluster-aligned sweep for NTFS/ext4 filesystems.
+* **Controlled In-Memory De-Braiding Engine (`BraidResolver`)**:
+  * Disabled by default to preserve raw file integrity and prevent accidental fragmentation on standard media.
+  * When enabled on demand by the analyst, mathematically detects and disentangles interleaved file pairs `[Part 1A, Part 1B, Part 2A, Part 2B]`.
+  * Verifies real in-memory pixel decompression (`img.load()`) before accepting any reconstructed candidate.
 * **Resilient Visual Preview Cocktail**:
   * **Auto-Closing Truncated Streams**: Injects virtual `FF D9` in memory if EOI is missing, allowing graphical renderers to display all intact MCUs up to the cut.
   * **Permissive Decoding Mode**: Pillow fallback with `LOAD_TRUNCATED_IMAGES = True` when strict parsers reject damaged files.

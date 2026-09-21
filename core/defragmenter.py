@@ -180,11 +180,13 @@ class BraidResolver:
             dataA = self.reader.read_bytes(lbaA * 512, p1A * 512) + self.reader.read_bytes(lba_2A * 512, p2A * 512)
             try:
                 imgA = Image.open(io.BytesIO(dataA))
+                imgA.load()
                 # Vérifier Fichier B
                 dataB = self.reader.read_bytes(lbaB * 512, p1B * 512) + self.reader.read_bytes(lba_2B * 512, p2B * 512)
                 imgB = Image.open(io.BytesIO(dataB))
+                imgB.load()
 
-                # Les deux images ouvrent sans erreur !
+                # Les deux images se décompressent intégralement sans erreur !
                 self._apply_blocks(artA, artB, lbaA, p1A, lbaB, p1B, lba_2A, p2A, lba_2B, p2B)
                 
                 # Mise à jour des métadonnées

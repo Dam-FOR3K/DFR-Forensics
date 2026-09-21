@@ -352,7 +352,7 @@ def build_french_whitepaper(output_path: str):
         [
             Paragraph("<b>GIF</b>", s["table_cell"]),
             Paragraph("<code>GIF87a / GIF89a</code>", s["table_cell"]),
-            Paragraph("Validation du descripteur logique d'écran, décodage des tables de couleurs et parcours jusqu'au terminateur <code>0x3B</code>.", s["table_cell"]),
+            Paragraph("Validation du descripteur logique d'écran, parcours exhaustif de la chaîne des blocs (extensions <code>0x21</code>, descripteurs <code>0x2C</code>, sous-blocs LZW) jusqu'au trailer légitime <code>0x3B</code> pour une étendue exacte au byte près.", s["table_cell"]),
         ],
         [
             Paragraph("<b>OLE CFBF (DOC, XLS, PPT)</b>", s["table_cell"]),
@@ -367,7 +367,7 @@ def build_french_whitepaper(output_path: str):
         [
             Paragraph("<b>TIFF 6.0</b>", s["table_cell"]),
             Paragraph("<code>49 49 2A 00 ('II*\\x00')<br/>4D 4D 00 2A ('MM\\x00*')</code>", s["table_cell"]),
-            Paragraph("Prise en charge Little-Endian et Big-Endian. Traversée de l'Image File Directory (IFD), calcul d'étendue exacte par Strip/Tile ByteCounts et pointeurs de métadonnées.", s["table_cell"]),
+            Paragraph("Prise en charge Little-Endian et Big-Endian. Traversée de l'Image File Directory (IFD), calcul d'étendue exacte par Strip/Tile ByteCounts, et filtrage strict des faux positifs EXIF JPEG.", s["table_cell"]),
         ],
         [
             Paragraph("<b>ZIP / Office XML</b>", s["table_cell"]),
@@ -386,6 +386,17 @@ def build_french_whitepaper(output_path: str):
     ]))
     story.append(t_carver)
     story.append(Spacer(1, 10))
+
+    story.append(Paragraph("Options Stratégiques de Carving & Alignement Sectoriel", s["h2"]))
+    story.append(Paragraph(
+        "Pour s'adapter à toutes les topologies de supports analysés, le moteur propose des options de configuration précises :",
+        s["body"]
+    ))
+    story.append(Paragraph("• <b>512 octets (Secteurs standard - Recommandé)</b> : Mode par défaut ultra-rapide calé sur les frontières sectorielles physiques. Idéal pour disques durs (HDD/SSD), clés USB et cartes mémoires.", s["bullet"]))
+    story.append(Paragraph("• <b>1 octet (Exhaustif / Tout décalage)</b> : Analyse chirurgicale octet par octet (offset libre). Indispensable pour la mémoire vive (RAM), les flux réseaux ou les images brutes dont les fichiers débutent avec un décalage arbitraire (1, 2, 17 octets...).", s["bullet"]))
+    story.append(Paragraph("• <b>4 096 octets (Clusters standard)</b> : Balayage accéléré aligné sur la taille standard des clusters de fichiers (NTFS, ext4).", s["bullet"]))
+    story.append(Paragraph("• <b>Dé-tressage Avancé (De-Braiding / BraidResolver)</b> : Désactivé par défaut pour préserver la structure brute des fichiers et éviter tout découpage involontaire. Lorsqu'il est activé à la demande, il sépare mathématiquement les flux mutuellement entrelacés en quinconce (motif 1A-1B-2A-2B) avec validation réelle du décodage de pixels.", s["bullet"]))
+    story.append(Spacer(1, 6))
 
     story.append(Paragraph("Conformité aux Standards NIST CFTT & Dé-tressage Automatique (De-Braiding)", s["h2"]))
     story.append(Paragraph(
@@ -662,7 +673,7 @@ def build_english_whitepaper(output_path: str):
         [
             Paragraph("<b>GIF</b>", s["table_cell"]),
             Paragraph("<code>GIF87a / GIF89a</code>", s["table_cell"]),
-            Paragraph("Logical Screen Descriptor dimensions check, color table traversal, and seeking the universal block terminator <code>0x3B</code>.", s["table_cell"]),
+            Paragraph("Logical Screen Descriptor dimensions check, full block structure traversal (extensions <code>0x21</code>, image descriptors <code>0x2C</code>, LZW sub-blocks) down to the legitimate trailer <code>0x3B</code> for byte-exact boundary determination.", s["table_cell"]),
         ],
         [
             Paragraph("<b>OLE CFBF (DOC, XLS, PPT)</b>", s["table_cell"]),
@@ -677,7 +688,7 @@ def build_english_whitepaper(output_path: str):
         [
             Paragraph("<b>TIFF 6.0</b>", s["table_cell"]),
             Paragraph("<code>49 49 2A 00 ('II*\\x00')<br/>4D 4D 00 2A ('MM\\x00*')</code>", s["table_cell"]),
-            Paragraph("Full Little-Endian and Big-Endian support. Traverses Image File Directory (IFD), computes exact physical span via Strip/Tile ByteCounts and metadata pointers.", s["table_cell"]),
+            Paragraph("Full Little-Endian and Big-Endian support. Traverses Image File Directory (IFD), computes exact physical span via Strip/Tile ByteCounts, and filters embedded JPEG EXIF false positives.", s["table_cell"]),
         ],
         [
             Paragraph("<b>ZIP / Office XML</b>", s["table_cell"]),
@@ -696,6 +707,17 @@ def build_english_whitepaper(output_path: str):
     ]))
     story.append(t_carver)
     story.append(Spacer(1, 10))
+
+    story.append(Paragraph("Strategic Carving Options & Sector Alignment", s["h2"]))
+    story.append(Paragraph(
+        "To adapt to any storage topology or memory dump, the engine offers surgical configuration options:",
+        s["body"]
+    ))
+    story.append(Paragraph("• <b>512 bytes (Standard sectors - Recommended)</b>: High-speed default mode aligned on physical sector boundaries. Ideal for HDD, SSD, USB flash drives, and SD cards.", s["bullet"]))
+    story.append(Paragraph("• <b>1 byte (Exhaustive / Any offset)</b>: Byte-by-byte exhaustive sweep (unaligned). Indispensable for RAM dumps, network streams, or shifted raw disk images where files begin at arbitrary offsets (1, 2, 17 bytes...).", s["bullet"]))
+    story.append(Paragraph("• <b>4,096 bytes (Standard clusters)</b>: Accelerated scan aligned on standard filesystem cluster boundaries (NTFS, ext4).", s["bullet"]))
+    story.append(Paragraph("• <b>Advanced De-Braiding (BraidResolver)</b>: Disabled by default to preserve raw file integrity and prevent accidental fragmentation on standard systems. When explicitly enabled by the analyst, it mathematically separates interleaved file pairs (1A-1B-2A-2B pattern) with verified in-memory pixel decompression.", s["bullet"]))
+    story.append(Spacer(1, 6))
 
     story.append(Paragraph("NIST CFTT Graphic Carving Compliance & Automated De-Braiding", s["h2"]))
     story.append(Paragraph(

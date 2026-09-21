@@ -217,6 +217,20 @@ class CarverDialog(QDialog):
         self.chk_registry.setStyleSheet("color: #c084fc; font-weight: bold;")
         row2.addWidget(self.chk_registry)
 
+        row2.addSpacing(25)
+        is_fr = get_lang() == "fr"
+        self.chk_debraid = QCheckBox("🧩 " + ("Dé-tressage avancé (flux entrelacés)" if is_fr else "Advanced De-Braiding (interleaved streams)"))
+        self.chk_debraid.setChecked(False)
+        self.chk_debraid.setToolTip(
+            "Active l'algorithme heuristique de séparation pour les fichiers fragmentés et entrelacés (BraidResolver).\n"
+            "Désactivé par défaut pour préserver l'intégrité brute des fichiers sur les systèmes standards."
+            if is_fr else
+            "Enables heuristic separation for interleaved fragmented files (BraidResolver).\n"
+            "Disabled by default to preserve raw file integrity on standard filesystems."
+        )
+        self.chk_debraid.setStyleSheet("color: #e879f9; font-weight: bold;")
+        row2.addWidget(self.chk_debraid)
+
         row2.addStretch()
         cfg_layout.addLayout(row2)
 
@@ -447,6 +461,7 @@ class CarverDialog(QDialog):
             sector_alignment=alignment,
             enabled_categories=categories,
             auto_unaligned_fallback=False,
+            enable_debraid=self.chk_debraid.isChecked(),
         )
 
         self.worker = CarverWorker(self.carver)

@@ -416,7 +416,10 @@ def validate_bmp(reader: ForensicImageReader, start_offset: int, max_bytes: int 
 
 def validate_gif(reader: ForensicImageReader, start_offset: int, max_bytes: int = 50 * 1024 * 1024) -> Optional[Tuple[int, Dict[str, Any], bool]]:
     """
-    Valide une image GIF (GIF87a / GIF89a) et localise le trailer final 0x3B.
+    Valide une image GIF (GIF87a / GIF89a) selon la spécification officielle.
+    Parse rigoureusement la table des blocs (Extensions 0x21, Image Descriptors 0x2C,
+    Local/Global Color Tables et sous-blocs LZW) pour déterminer l'étendue physique exacte
+    jusqu'au trailer 0x3B, sans faux positifs.
     """
     hdr = reader.read_bytes(start_offset, 13)
     if len(hdr) < 13 or hdr[0:6] not in (b"GIF87a", b"GIF89a"):
@@ -426,29 +429,83 @@ def validate_gif(reader: ForensicImageReader, start_offset: int, max_bytes: int 
     if width <= 0 or height <= 0:
         return None
 
-    scan_limit = min(max_bytes, 16 * 1024 * 1024)
-    data = reader.read_bytes(start_offset, scan_limit)
-    trailer_pos = -1
-    pos = 13
-    while pos < len(data):
-        found = data.find(b";", pos)
-        if found == -1:
-            break
-        trailer_pos = found + 1
-        pos = found + 1
+    packed = hdr[10]
+    has_gct = (packed & 0x80) != 0
+    gct_size = 3 * (1 << ((packed & 0x07) + 1)) if has_gct else 0
+    pos = 13 + gct_size
 
-    if trailer_pos <= 0:
+    # Charger un buffer initial pour un parsing ultra-rapide en mémoire
+    buf_size = min(max_bytes, 16 * 1024 * 1024)
+    data = reader.read_bytes(start_offset, buf_size)
+    if len(data) < pos:
         return None
 
-    meta = {
-        "width": width,
-        "height": height,
-        "resolution": f"{width}x{height}",
-        "version": hdr[0:6].decode("ascii", errors="ignore"),
-        "file_type": "GIF",
-        "extension": ".gif",
-    }
-    return trailer_pos, meta, False
+    has_image_desc = False
+
+    while pos < len(data):
+        b = data[pos]
+        if b == 0x3B:  # Trailer GIF légitime marquant la fin du fichier
+            meta = {
+                "width": width,
+                "height": height,
+                "resolution": f"{width}x{height}",
+                "version": hdr[0:6].decode("ascii", errors="ignore"),
+                "file_type": "GIF",
+                "extension": ".gif",
+            }
+            return pos + 1, meta, False
+
+        elif b == 0x21:  # Bloc d'extension
+            if pos + 2 > len(data):
+                break
+            pos += 2  # 0x21 + code fonction
+            while pos < len(data):
+                block_sz = data[pos]
+                pos += 1
+                if block_sz == 0:
+                    break
+                pos += block_sz
+
+        elif b == 0x2C:  # Descripteur d'image
+            has_image_desc = True
+            if pos + 10 > len(data):
+                break
+            img_packed = data[pos + 9]
+            pos += 10
+            has_lct = (img_packed & 0x80) != 0
+            if has_lct:
+                lct_size = 3 * (1 << ((img_packed & 0x07) + 1))
+                pos += lct_size
+            if pos >= len(data):
+                break
+            pos += 1  # LZW minimum code size
+            while pos < len(data):
+                block_sz = data[pos]
+                pos += 1
+                if block_sz == 0:
+                    break
+                pos += block_sz
+
+        elif b == 0x00:  # Octet nul de synchronisation / padding
+            pos += 1
+        else:
+            # Octet inattendu au niveau racine (bloc corrompu, remplissage ou fragment)
+            break
+
+    # Si le trailer n'a pas été trouvé mais qu'au moins une image a été analysée
+    if has_image_desc and pos > 13:
+        meta = {
+            "width": width,
+            "height": height,
+            "resolution": f"{width}x{height}",
+            "version": hdr[0:6].decode("ascii", errors="ignore"),
+            "file_type": "GIF",
+            "extension": ".gif",
+            "is_fragmented": True,
+        }
+        return pos, meta, True
+
+    return None
 
 
 def validate_sqlite(reader: ForensicImageReader, start_offset: int, max_bytes: int = 500 * 1024 * 1024) -> Optional[Tuple[int, Dict[str, Any], bool]]:
@@ -766,6 +823,7 @@ class SmartCarver:
         sector_alignment: int = 512,
         enabled_categories: Optional[List[str]] = None,
         auto_unaligned_fallback: bool = False,
+        enable_debraid: bool = False,
     ):
         self.reader = reader
         self.sector_size = reader.sector_size
@@ -774,6 +832,7 @@ class SmartCarver:
         self.sector_alignment = sector_alignment
         self.enabled_categories = enabled_categories or ["Images", "Databases", "Documents", "Logs", "Registry", "Archives"]
         self.auto_unaligned_fallback = auto_unaligned_fallback
+        self.enable_debraid = enable_debraid
 
         self.carved_artefacts: List[CarvedArtefact] = []
         self._is_cancelled = False
@@ -898,13 +957,14 @@ class SmartCarver:
                 speed = (bytes_scanned / (1024 * 1024)) / elapsed
                 progress_callback(current_lba - self.start_lba, total_lbas, speed, artefact_counter)
 
-        # Dé-tressage médico-légal automatique des flux entrelacés (BraidResolver)
-        try:
-            from core.defragmenter import BraidResolver
-            resolver = BraidResolver(self.reader)
-            resolver.resolve(self.carved_artefacts)
-        except Exception:
-            pass
+        # Dé-tressage médico-légal heuristique des flux entrelacés (BraidResolver) - Optionnel
+        if self.enable_debraid:
+            try:
+                from core.defragmenter import BraidResolver
+                resolver = BraidResolver(self.reader)
+                resolver.resolve(self.carved_artefacts)
+            except Exception:
+                pass
 
         # Corrélation sémantique avec les répertoires orphelins (FAT / NTFS)
         try:
