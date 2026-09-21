@@ -60,7 +60,7 @@ When storage media suffer destructive wiper attacks (*HermeticWiper*, *CaddyWipe
   * **PDF**: Bounded forward scanning strictly limited to the nearest `%%EOF` marker.
   * **ZIP / Office XML**: Local File Header chaining and validation against Central Directory records.
 * **Targeted Unallocated Space Carving (`Espace non alloué uniquement`)**:
-  * Scans exclusively deleted and unassigned disk regions, automatically bypassing active filesystem files across **NTFS** (`$Bitmap` record 6 & data runs complement), **FAT12/16/32** (0-value clusters), **exFAT** (allocation bitmap), **EXT2/3/4** (block bitmap inspection), and **QNX4/6** (block allocation tables), plus unpartitioned drive slack.
+  * Scans exclusively deleted and unassigned disk regions, automatically bypassing active filesystem files across **NTFS** (`$Bitmap` record 6 & data runs complement), **FAT12/16/32** (0-value clusters), **exFAT** (allocation bitmap), **EXT2/3/4** (block bitmap inspection), **QNX4/6** (block allocation tables), and **Apple APFS** (Space Manager chunk bitmaps & extents), plus unpartitioned drive slack.
   * Eliminates redundant extraction of already intact files, yielding a 5x to 10x speedup in forensic triage with zero duplicate clutter.
 * **Strategic Sector Alignment & Sweep Modes**:
   * **512 bytes (Standard sectors - Recommended)**: Ultra-fast physical sector-aligned sweep for drives, SSDs, and USB storage.
@@ -121,7 +121,7 @@ DFR-Forensics/
 │   ├── synthesizer.py          # Superblock carver & heuristic GPT synthesis
 │   ├── carver.py               # Intelligent format-specific carver & validators (JPEG, PNG, BMP, GIF, TIFF, OLE, PDF, ZIP)
 │   ├── defragmenter.py         # In-Memory De-Braiding & fragmented stream reconstruction (NIST CFTT)
-│   ├── unallocated.py          # Filesystem unallocated cluster & gap mapping (NTFS, FAT, exFAT, EXT, QNX)
+│   ├── unallocated.py          # Filesystem unallocated cluster & gap mapping (NTFS, FAT, exFAT, EXT, QNX, APFS)
 │   ├── correlator.py           # Orphan directory metadata correlator
 │   ├── crypto_engine.py        # LUKS1/2 & BitLocker in-memory decryption
 │   ├── ntfs_reader.py          # Pure-Python NTFS parser & MFT undelete

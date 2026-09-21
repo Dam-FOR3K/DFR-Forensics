@@ -718,6 +718,25 @@ class VirtualExplorerDialog(QDialog):
             children = parent_entry.children
         except Exception:
             children = []
+
+        # Résolution dynamique à la demande (Lazy Loading sur le B-Tree APFS)
+        if not children and parent_entry.node:
+            try:
+                real_node = getattr(parent_entry.node, "inode", parent_entry.node) if hasattr(parent_entry.node, "file_id") else parent_entry.node
+                if hasattr(real_node, "iterdir"):
+                    for ch_raw in real_node.iterdir():
+                        c_node = getattr(ch_raw, "inode", ch_raw) if hasattr(ch_raw, "file_id") else ch_raw
+                        c_name = getattr(ch_raw, "name", getattr(c_node, "name", str(ch_raw)))
+                        c_is_dir = c_node.is_dir() if callable(getattr(c_node, "is_dir", None)) else (ch_raw.is_dir() if callable(getattr(ch_raw, "is_dir", None)) else False)
+                        c_size = getattr(c_node, "size", 0) if not c_is_dir else 0
+                        c_mtime = getattr(c_node, "mtime", None)
+                        c_path = f"{parent_entry.path.rstrip('/')}/{c_name}"
+                        fe = APFSFileEntry(name=c_name, path=c_path, is_dir=c_is_dir, size=c_size, mtime=c_mtime, node=c_node)
+                        parent_entry.children.append(fe)
+                    children = parent_entry.children
+            except Exception:
+                pass
+
         sorted_children = sorted(children, key=lambda e: (not e.is_dir(), e.name.lower()))
         for ch in sorted_children:
             is_dir = ch.is_dir()

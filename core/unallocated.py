@@ -289,13 +289,159 @@ def extract_unallocated_qnx(reader: ForensicImageReader, part_offset: int, part_
         return []
 
 
+def extract_unallocated_apfs(reader: ForensicImageReader, part_offset: int, part_sectors: int) -> List[Tuple[int, int]]:
+    """
+    Extrait les plages LBA des blocs libres APFS via le Space Manager (Spaceman)
+    ou par calcul des zones allouées du conteneur NXSB.
+    """
+    try:
+        import dissect.apfs as apfs
+        import dissect.apfs.c_apfs as c
+        from core.crypto_engine import PartitionStream
+
+        stream = PartitionStream(reader, part_offset, part_sectors * reader.sector_size)
+        hdr = reader.read_bytes(part_offset, 4096)
+        if b"NXSB" not in hdr[:64]:
+            return []
+
+        container = apfs.APFS(stream)
+        sb = container.sb
+        block_size = getattr(sb, "block_size", 4096) or 4096
+        spb = max(1, block_size // reader.sector_size)
+        part_lba = part_offset // reader.sector_size
+        total_blocks = getattr(sb, "block_count", 0) or (part_sectors // spb)
+
+        free_block_ranges: List[Tuple[int, int]] = []
+
+        # Tentative 1 : Extraction chirurgicale via le Space Manager (Spaceman)
+        try:
+            sm_oid = getattr(sb.object, "nx_spaceman_oid", 0)
+            sm_paddr = sb.omap.lookup(sm_oid, sb.xid) if (sm_oid and hasattr(sb, "omap")) else 0
+            if sm_paddr and sm_paddr < total_blocks:
+                sm_data = container._read_block(sm_paddr)
+                sm = c.c_apfs.spaceman_phys(sm_data)
+                dev = sm.sm_dev[0]
+                cab_count = getattr(dev, "sm_cab_count", 0)
+                cib_count = getattr(dev, "sm_cib_count", 0)
+                addr_offset = getattr(dev, "sm_addr_offset", 0)
+
+                cib_addrs: List[int] = []
+                if cab_count > 0 and addr_offset:
+                    # Lecture des Chunk-Info Address Blocks (CAB)
+                    cab_data = container._read_block(addr_offset)
+                    cab = c.c_apfs.cib_addr_block(cab_data)
+                    for ca in getattr(cab, "cab_cib_addr", []):
+                        if ca and ca < total_blocks:
+                            cib_addrs.append(ca)
+                elif (cib_count > 0 or cab_count == 0) and addr_offset and addr_offset < total_blocks:
+                    cib_addrs.append(addr_offset)
+
+                for cib_paddr in cib_addrs:
+                    try:
+                        cib_data = container._read_block(cib_paddr)
+                        cib = c.c_apfs.chunk_info_block(cib_data)
+                        for ci in getattr(cib, "cib_chunk_info", []):
+                            ci_addr = getattr(ci, "ci_addr", 0)
+                            ci_blocks = getattr(ci, "ci_block_count", 0)
+                            ci_free = getattr(ci, "ci_free_count", 0)
+                            ci_bm_addr = getattr(ci, "ci_bitmap_addr", 0)
+
+                            if ci_blocks == 0 or ci_addr >= total_blocks:
+                                continue
+
+                            if ci_free == ci_blocks:
+                                free_block_ranges.append((ci_addr, ci_addr + ci_blocks - 1))
+                            elif ci_free > 0 and ci_bm_addr and ci_bm_addr < total_blocks:
+                                bm_data = container._read_block(ci_bm_addr)
+                                in_free = False
+                                free_start = 0
+                                for b_idx in range(ci_blocks):
+                                    byte_i = b_idx >> 3
+                                    bit_i = b_idx & 7
+                                    is_alloc = ((bm_data[byte_i] >> bit_i) & 1) if byte_i < len(bm_data) else 0
+                                    if not is_alloc:
+                                        if not in_free:
+                                            in_free = True
+                                            free_start = b_idx
+                                    else:
+                                        if in_free:
+                                            in_free = False
+                                            free_block_ranges.append((ci_addr + free_start, ci_addr + b_idx - 1))
+                                if in_free:
+                                    free_block_ranges.append((ci_addr + free_start, ci_addr + ci_blocks - 1))
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+
+        # Tentative 2 : Déduction par inversion des extents alloués
+        if not free_block_ranges:
+            try:
+                allocated_blocks: Set[int] = set()
+                allocated_blocks.add(0)
+                desc_base = getattr(sb.object, "nx_xp_desc_base", 0)
+                desc_blocks = getattr(sb.object, "nx_xp_desc_blocks", 0)
+                for b in range(desc_base, desc_base + desc_blocks):
+                    allocated_blocks.add(b)
+                data_base = getattr(sb.object, "nx_xp_data_base", 0)
+                data_blocks = getattr(sb.object, "nx_xp_data_blocks", 0)
+                for b in range(data_base, data_base + data_blocks):
+                    allocated_blocks.add(b)
+
+                for vol in container.volumes:
+                    try:
+                        if hasattr(vol, "fext_tree") and vol.fext_tree:
+                            for _, key, val in vol.fext_tree.records():
+                                try:
+                                    phys_block = getattr(val, "phys_block_num", 0) or getattr(val, "paddr", 0)
+                                    length = getattr(val, "length", 0) or getattr(val, "block_count", 0)
+                                    for b in range(phys_block, phys_block + length):
+                                        if b < total_blocks:
+                                            allocated_blocks.add(b)
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
+
+                if len(allocated_blocks) > 1:
+                    in_free = False
+                    free_start = 0
+                    for b in range(total_blocks):
+                        if b not in allocated_blocks:
+                            if not in_free:
+                                in_free = True
+                                free_start = b
+                        else:
+                            if in_free:
+                                in_free = False
+                                free_block_ranges.append((free_start, b - 1))
+                    if in_free:
+                        free_block_ranges.append((free_start, total_blocks - 1))
+            except Exception:
+                pass
+
+        if free_block_ranges:
+            lba_ranges = []
+            for b_start, b_end in free_block_ranges:
+                s_lba = part_lba + b_start * spb
+                e_lba = min(part_lba + part_sectors - 1, part_lba + (b_end + 1) * spb - 1)
+                if s_lba <= e_lba:
+                    lba_ranges.append((s_lba, e_lba))
+            return merge_lba_ranges(lba_ranges)
+
+    except Exception:
+        pass
+
+    return []
+
+
 def get_unallocated_ranges_for_partition(
     reader: ForensicImageReader,
     p: GPTPartitionEntry,
 ) -> List[Tuple[int, int]]:
     """
     Extrait les plages LBA de l'espace non alloué pour une partition spécifique.
-    Teste successivement NTFS, FAT, EXT, exFAT et QNX.
+    Teste successivement NTFS, FAT, EXT, exFAT, QNX et APFS.
     Si aucun FS n'est exploitable, renvoie une liste vide.
     """
     part_offset = p.first_lba * reader.sector_size
@@ -329,6 +475,12 @@ def get_unallocated_ranges_for_partition(
     # 5. Test QNX
     if "QNX" in fs_hint:
         ranges = extract_unallocated_qnx(reader, part_offset, part_sectors)
+        if ranges:
+            return ranges
+
+    # 6. Test Apple APFS
+    if "APFS" in fs_hint or "APPLE" in fs_hint or fs_hint == "":
+        ranges = extract_unallocated_apfs(reader, part_offset, part_sectors)
         if ranges:
             return ranges
 

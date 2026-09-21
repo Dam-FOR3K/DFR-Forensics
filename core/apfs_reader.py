@@ -103,30 +103,32 @@ class APFSReader:
             return
 
         try:
+            real_node = getattr(node, "inode", node) if hasattr(node, "file_id") else node
             entries = []
-            if hasattr(node, "iterdir"):
-                entries = list(node.iterdir())
-            elif hasattr(node, "listdir"):
-                for name in node.listdir():
+            if hasattr(real_node, "iterdir"):
+                entries = list(real_node.iterdir())
+            elif hasattr(real_node, "listdir"):
+                for name in real_node.listdir():
                     try:
-                        entries.append(node.get(name))
+                        entries.append(real_node.get(name))
                     except Exception:
                         pass
 
             for child in entries:
                 try:
-                    c_name = getattr(child, "name", str(child))
-                    c_is_dir = child.is_dir() if callable(getattr(child, "is_dir", None)) else False
-                    c_size = getattr(child, "size", 0) if not c_is_dir else 0
-                    c_mtime = getattr(child, "mtime", None)
+                    c_node = getattr(child, "inode", child) if hasattr(child, "file_id") else child
+                    c_name = getattr(child, "name", getattr(c_node, "name", str(child)))
+                    c_is_dir = c_node.is_dir() if callable(getattr(c_node, "is_dir", None)) else (child.is_dir() if callable(getattr(child, "is_dir", None)) else False)
+                    c_size = getattr(c_node, "size", 0) if not c_is_dir else 0
+                    c_mtime = getattr(c_node, "mtime", None)
                     c_path = f"{current_path.rstrip('/')}/{c_name}"
 
-                    file_entry = APFSFileEntry(name=c_name, path=c_path, is_dir=c_is_dir, size=c_size, mtime=c_mtime, node=child)
+                    file_entry = APFSFileEntry(name=c_name, path=c_path, is_dir=c_is_dir, size=c_size, mtime=c_mtime, node=c_node)
                     parent_entry.children.append(file_entry)
                     v_info.all_entries.append(file_entry)
 
                     if c_is_dir:
-                        self._traverse(child, file_entry, c_path, v_info, max_depth - 1)
+                        self._traverse(c_node, file_entry, c_path, v_info, max_depth - 1)
                 except Exception:
                     continue
         except Exception:
@@ -135,12 +137,13 @@ class APFSReader:
     def extract_file_content(self, entry: APFSFileEntry) -> bytes:
         if not entry.node or entry.is_dir():
             return b""
+        node = getattr(entry.node, "inode", entry.node) if hasattr(entry.node, "file_id") else entry.node
         try:
-            if hasattr(entry.node, "open"):
-                with entry.node.open() as f:
+            if hasattr(node, "open"):
+                with node.open() as f:
                     return f.read()
-            elif hasattr(entry.node, "read"):
-                return entry.node.read()
+            elif hasattr(node, "read"):
+                return node.read()
         except Exception:
             return b""
         return b""
