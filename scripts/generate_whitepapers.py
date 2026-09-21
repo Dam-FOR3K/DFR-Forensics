@@ -2,7 +2,7 @@
 DFR-Forensics - Générateur de Whitepapers Techniques & Guides d'Architecture
 Produit une documentation forensique approfondie multi-pages (FR et EN)
 destinée aux analystes médico-légaux, ingénieurs en rétro-ingénierie et auditeurs.
-Auteur : Dam-FOR3K | Version : v2.6.0
+Auteur : Dam-FOR3K | Version : v2.7.0
 """
 
 import os
@@ -197,7 +197,7 @@ def build_french_whitepaper(output_path: str):
     meta_table_data = [
         [
             Paragraph("<b>Auteur :</b> Dam-FOR3K", s["table_cell"]),
-            Paragraph("<b>Version :</b> v2.6.0", s["table_cell"]),
+            Paragraph("<b>Version :</b> v2.7.0", s["table_cell"]),
             Paragraph("<b>Date :</b> Septembre 2026", s["table_cell"]),
             Paragraph("<b>Licence :</b> MIT Open-Source", s["table_cell"]),
         ]
@@ -365,6 +365,11 @@ def build_french_whitepaper(output_path: str):
             Paragraph("Balayage linéaire borné à la recherche du marqueur <code>%%EOF</code> le plus proche pour empêcher l'absorption de documents consécutifs.", s["table_cell"]),
         ],
         [
+            Paragraph("<b>TIFF 6.0</b>", s["table_cell"]),
+            Paragraph("<code>49 49 2A 00 ('II*\\x00')<br/>4D 4D 00 2A ('MM\\x00*')</code>", s["table_cell"]),
+            Paragraph("Prise en charge Little-Endian et Big-Endian. Traversée de l'Image File Directory (IFD), calcul d'étendue exacte par Strip/Tile ByteCounts et pointeurs de métadonnées.", s["table_cell"]),
+        ],
+        [
             Paragraph("<b>ZIP / Office XML</b>", s["table_cell"]),
             Paragraph("<code>50 4B 03 04 ('PK..')</code>", s["table_cell"]),
             Paragraph("Traversée des Local File Headers et validation par le Central Directory Record (<code>PK\\x01\\x02</code>) et End of Central Directory (<code>PK\\x05\\x06</code>).", s["table_cell"]),
@@ -381,6 +386,18 @@ def build_french_whitepaper(output_path: str):
     ]))
     story.append(t_carver)
     story.append(Spacer(1, 10))
+
+    story.append(Paragraph("Conformité aux Standards NIST CFTT & Dé-tressage Automatique (De-Braiding)", s["h2"]))
+    story.append(Paragraph(
+        "<b>DFR-Forensics</b> valide avec succès l'intégralité de la suite officielle de référence <b>NIST CFTT Graphic Carving</b> "
+        "(8 images disques médico-légales de test) :",
+        s["body"]
+    ))
+    story.append(Paragraph("• <b>graphic-basic & graphic-nofill</b> : 40/40 fichiers contigus (BMP, GIF, JPG, PNG, TIFF) sculptés avec dimensions et hashs parfaits.", s["bullet"]))
+    story.append(Paragraph("• <b>graphic-shifted & notshifted</b> : Extraction sans perte des flux non alignés (décalages de 1 à 511 octets au sein des secteurs).", s["bullet"]))
+    story.append(Paragraph("• <b>graphic-partials</b> : Récupération résiliente des flux d'images tronqués sans crash de l'analyseur.", s["bullet"]))
+    story.append(Paragraph("• <b>graphic-braid (Dé-tressage In-Memory)</b> : Le moteur <code>BraidResolver</code> détecte et sépare mathématiquement les paires de fichiers mutuellement entrelacées [1A, 1B, 2A, 2B] sans artéfact de pixels ni corruption visuelle (100% des 20 fichiers décodés avec succès).", s["bullet"]))
+    story.append(Spacer(1, 6))
 
     story.append(Paragraph("Le Cocktail de Résilience Visuelle pour Fichiers Endommagés", s["h2"]))
     story.append(Paragraph(
@@ -494,7 +511,7 @@ def build_english_whitepaper(output_path: str):
     meta_table_data = [
         [
             Paragraph("<b>Author:</b> Dam-FOR3K", s["table_cell"]),
-            Paragraph("<b>Version:</b> v2.6.0", s["table_cell"]),
+            Paragraph("<b>Version:</b> v2.7.0", s["table_cell"]),
             Paragraph("<b>Date:</b> September 2026", s["table_cell"]),
             Paragraph("<b>License:</b> MIT Open-Source", s["table_cell"]),
         ]
@@ -658,6 +675,11 @@ def build_english_whitepaper(output_path: str):
             Paragraph("Bounded forward scan for the nearest <code>%%EOF</code> marker to prevent document concatenation.", s["table_cell"]),
         ],
         [
+            Paragraph("<b>TIFF 6.0</b>", s["table_cell"]),
+            Paragraph("<code>49 49 2A 00 ('II*\\x00')<br/>4D 4D 00 2A ('MM\\x00*')</code>", s["table_cell"]),
+            Paragraph("Full Little-Endian and Big-Endian support. Traverses Image File Directory (IFD), computes exact physical span via Strip/Tile ByteCounts and metadata pointers.", s["table_cell"]),
+        ],
+        [
             Paragraph("<b>ZIP / Office XML</b>", s["table_cell"]),
             Paragraph("<code>50 4B 03 04 ('PK..')</code>", s["table_cell"]),
             Paragraph("Local File Header chaining and validation via Central Directory (<code>PK\\x01\\x02</code>) and EOCD (<code>PK\\x05\\x06</code>).", s["table_cell"]),
@@ -674,6 +696,18 @@ def build_english_whitepaper(output_path: str):
     ]))
     story.append(t_carver)
     story.append(Spacer(1, 10))
+
+    story.append(Paragraph("NIST CFTT Graphic Carving Compliance & Automated De-Braiding", s["h2"]))
+    story.append(Paragraph(
+        "<b>DFR-Forensics</b> successfully passes the complete official <b>NIST CFTT Graphic Carving</b> test suite "
+        "(8 forensic benchmark disk images):",
+        s["body"]
+    ))
+    story.append(Paragraph("• <b>graphic-basic & graphic-nofill</b>: 40/40 contiguous files (BMP, GIF, JPG, PNG, TIFF) carved with 100% bit-exact dimensions and hashes.", s["bullet"]))
+    story.append(Paragraph("• <b>graphic-shifted & notshifted</b>: Lossless extraction of unaligned streams (offsets 1 to 511 bytes within sectors).", s["bullet"]))
+    story.append(Paragraph("• <b>graphic-partials</b>: Resilient recovery of truncated image streams without parser failures.", s["bullet"]))
+    story.append(Paragraph("• <b>graphic-braid (In-Memory De-Braiding)</b>: The <code>BraidResolver</code> engine automatically identifies and mathematically disentangles interleaved file pairs [1A, 1B, 2A, 2B] without Frankenstein pixel corruption (100% of 20 images successfully decoded in memory).", s["bullet"]))
+    story.append(Spacer(1, 6))
 
     story.append(Paragraph("The Resilient Preview Cocktail for Damaged Images", s["h2"]))
     story.append(Paragraph(

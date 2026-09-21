@@ -177,8 +177,8 @@ def validate_jpeg(reader: ForensicImageReader, start_offset: int, max_bytes: int
 
 def validate_png(reader: ForensicImageReader, start_offset: int, max_bytes: int = 100 * 1024 * 1024) -> Optional[Tuple[int, Dict[str, Any], bool]]:
     """
-    Valide un flux PNG chunk par chunk avec contrôle CRC32 strict.
-    Retourne la taille mathématique exacte.
+    Valide un flux PNG chunk par chunk avec contrôle CRC32 et tolérance médico-légale
+    pour les flux entrelacés ou fragmentés.
     """
     sig = reader.read_bytes(start_offset, 8)
     if sig != b"\x89PNG\r\n\x1a\n":
@@ -194,29 +194,45 @@ def validate_png(reader: ForensicImageReader, start_offset: int, max_bytes: int 
     while pos < max_bytes:
         chunk_hdr = reader.read_bytes(start_offset + pos, 8)
         if len(chunk_hdr) < 8:
-            return None
+            break
 
         length = struct.unpack(">I", chunk_hdr[0:4])[0]
         chunk_type = chunk_hdr[4:8]
 
         # Protection contre longueurs invalides ou aberrantes
         if length > 32 * 1024 * 1024:
-            return None
+            break
 
         chunk_full = reader.read_bytes(start_offset + pos + 4, length + 4)  # type + data
         crc_bytes = reader.read_bytes(start_offset + pos + 8 + length, 4)
         if len(chunk_full) < length + 4 or len(crc_bytes) < 4:
-            return None
+            break
 
         expected_crc = struct.unpack(">I", crc_bytes)[0]
         actual_crc = zlib.crc32(chunk_full)
-        if actual_crc != expected_crc:
-            return None
 
         # Chunk IHDR (Dimensions obligatoires)
         if chunk_type == b"IHDR" and length >= 13:
             ihdr_data = chunk_full[4:17]
             width, height, bit_depth, color_type = struct.unpack(">IIBB", ihdr_data[0:10])
+
+        if actual_crc != expected_crc:
+            # Flux fragmenté ou entrelacé (Braid) : sauvetage si IHDR valide
+            if width > 0 and height > 0:
+                scan_buf = reader.read_bytes(start_offset + pos, min(30 * 1024 * 1024, max_bytes - pos))
+                iend_idx = scan_buf.find(b"IEND")
+                end_pos = (pos + iend_idx + 8) if iend_idx != -1 else (pos + 12 + length)
+                meta = {
+                    "width": width,
+                    "height": height,
+                    "resolution": f"{width}x{height}",
+                    "bit_depth": bit_depth,
+                    "color_type": color_type,
+                    "chunks_count": chunks_seen,
+                    "is_fragmented": True,
+                }
+                return end_pos, meta, True
+            return None
 
         pos += 12 + length  # 4B length + 4B type + length + 4B crc
         chunks_seen += 1
@@ -233,12 +249,142 @@ def validate_png(reader: ForensicImageReader, start_offset: int, max_bytes: int 
             }
             return pos, meta, False
 
+    if width > 0 and height > 0:
+        meta = {
+            "width": width,
+            "height": height,
+            "resolution": f"{width}x{height}",
+            "is_truncated": True,
+        }
+        return pos, meta, True
+
     return None
+
+
+def validate_tiff(reader: ForensicImageReader, start_offset: int, max_bytes: int = 150 * 1024 * 1024) -> Optional[Tuple[int, Dict[str, Any], bool]]:
+    """
+    Valide une image TIFF (Tagged Image File Format) selon la spécification TIFF 6.0.
+    Prend en charge Little-Endian (II*\x00) et Big-Endian (MM\x00*).
+    Parcourt l'IFD (Image File Directory) et calcule la taille exacte via les bandes/tuiles et balises.
+    """
+    hdr = reader.read_bytes(start_offset, 8)
+    if len(hdr) < 8:
+        return None
+
+    if hdr[:4] == b"II*\x00":
+        endian = "<"
+    elif hdr[:4] == b"MM\x00*":
+        endian = ">"
+    else:
+        return None
+
+    first_ifd_offset = struct.unpack(endian + "I", hdr[4:8])[0]
+    if first_ifd_offset < 8 or first_ifd_offset > max_bytes:
+        return None
+
+    # Lire l'IFD
+    ifd_hdr = reader.read_bytes(start_offset + first_ifd_offset, 2)
+    if len(ifd_hdr) < 2:
+        meta = {
+            "file_type": "TIFF",
+            "extension": ".tiff",
+            "endianness": "Little" if endian == "<" else "Big",
+            "is_fragmented": True,
+        }
+        return first_ifd_offset + 512, meta, True
+
+    num_entries = struct.unpack(endian + "H", ifd_hdr)[0]
+    if num_entries == 0 or num_entries > 4096:
+        meta = {
+            "file_type": "TIFF",
+            "extension": ".tiff",
+            "endianness": "Little" if endian == "<" else "Big",
+            "is_fragmented": True,
+        }
+        return first_ifd_offset + 512, meta, True
+
+    entries_data = reader.read_bytes(start_offset + first_ifd_offset + 2, num_entries * 12)
+    if len(entries_data) < num_entries * 12:
+        meta = {
+            "file_type": "TIFF",
+            "extension": ".tiff",
+            "endianness": "Little" if endian == "<" else "Big",
+            "is_fragmented": True,
+        }
+        return first_ifd_offset + 512, meta, True
+
+    def type_size(t: int) -> int:
+        return {1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 6: 1, 7: 1, 8: 2, 9: 4, 10: 8, 11: 4, 12: 8}.get(t, 1)
+
+    max_offset = first_ifd_offset + 2 + num_entries * 12 + 4
+    width = 0
+    height = 0
+    strip_offsets_info = None
+    strip_counts_info = None
+    tile_offsets_info = None
+    tile_counts_info = None
+
+    for i in range(num_entries):
+        entry = entries_data[i * 12 : (i + 1) * 12]
+        tag, typ, cnt, val = struct.unpack(endian + "HHII", entry)
+        item_sz = type_size(typ) * cnt
+        if item_sz > 4:
+            max_offset = max(max_offset, val + item_sz)
+
+        if tag == 0x0100:  # ImageWidth
+            width = val if typ == 4 else (val >> 16 if endian == ">" else val & 0xFFFF)
+        elif tag == 0x0101:  # ImageLength
+            height = val if typ == 4 else (val >> 16 if endian == ">" else val & 0xFFFF)
+        elif tag == 0x0111:  # StripOffsets
+            strip_offsets_info = (cnt, typ, val)
+        elif tag == 0x0117:  # StripByteCounts
+            strip_counts_info = (cnt, typ, val)
+        elif tag == 0x0144:  # TileOffsets
+            tile_offsets_info = (cnt, typ, val)
+        elif tag == 0x0145:  # TileByteCounts
+            tile_counts_info = (cnt, typ, val)
+
+    def read_offsets(info):
+        if not info:
+            return []
+        cnt, typ, val = info
+        if cnt == 1:
+            return [val if typ == 4 else (val >> 16 if endian == ">" else val & 0xFFFF)]
+        sz = type_size(typ)
+        if sz not in (2, 4) or cnt > 100000:
+            return []
+        raw = reader.read_bytes(start_offset + val, cnt * sz)
+        if len(raw) < cnt * sz:
+            return []
+        char_fmt = "I" if sz == 4 else "H"
+        fmt = f"{endian}{cnt}{char_fmt}"
+        return list(struct.unpack(fmt, raw))
+
+    for s_off, s_cnt in zip(read_offsets(strip_offsets_info), read_offsets(strip_counts_info)):
+        max_offset = max(max_offset, s_off + s_cnt)
+
+    for t_off, t_cnt in zip(read_offsets(tile_offsets_info), read_offsets(tile_counts_info)):
+        max_offset = max(max_offset, t_off + t_cnt)
+
+    if max_offset <= 8 or max_offset > max_bytes:
+        return None
+
+    meta = {
+        "width": width,
+        "height": height,
+        "resolution": f"{width}x{height}" if width and height else "Unknown",
+        "file_type": "TIFF",
+        "extension": ".tiff",
+        "endianness": "Little" if endian == "<" else "Big",
+        "is_fragmented": False,
+    }
+    return max_offset, meta, False
 
 
 def validate_bmp(reader: ForensicImageReader, start_offset: int, max_bytes: int = 50 * 1024 * 1024) -> Optional[Tuple[int, Dict[str, Any], bool]]:
     """
     Valide une image Bitmap (BMP) et extrait sa taille mathématique exacte depuis l'en-tête (offset 0x02).
+    Prend en charge les en-têtes DIB v1 à v5 (12, 40, 52, 56, 64, 108, 124 octets).
     """
     hdr = reader.read_bytes(start_offset, 54)
     if len(hdr) < 54 or hdr[0:2] != b"BM":
@@ -253,7 +399,7 @@ def validate_bmp(reader: ForensicImageReader, start_offset: int, max_bytes: int 
         return None
 
     dib_size = struct.unpack("<I", hdr[14:18])[0]
-    if dib_size not in (40, 108, 124, 12, 64):
+    if dib_size not in (12, 40, 52, 56, 64, 108, 124):
         return None
 
     width = struct.unpack("<I", hdr[18:22])[0]
@@ -595,6 +741,8 @@ def validate_pdf(reader: ForensicImageReader, start_offset: int, max_bytes: int 
 SIGNATURE_DISPATCH = [
     (b"\xFF\xD8\xFF", "Images", "JPEG", ".jpg", validate_jpeg),
     (b"\x89PNG\r\n\x1a\n", "Images", "PNG", ".png", validate_png),
+    (b"II*\x00", "Images", "TIFF", ".tiff", validate_tiff),
+    (b"MM\x00*", "Images", "TIFF", ".tiff", validate_tiff),
     (b"BM", "Images", "BMP", ".bmp", validate_bmp),
     (b"GIF87a", "Images", "GIF", ".gif", validate_gif),
     (b"GIF89a", "Images", "GIF", ".gif", validate_gif),
@@ -663,6 +811,7 @@ class SmartCarver:
         import time
         t_start = time.time()
         bytes_scanned = 0
+        seen_offsets = set()
 
         while current_lba <= self.end_lba and not self._is_cancelled:
             while self._is_paused and not self._is_cancelled:
@@ -701,6 +850,10 @@ class SmartCarver:
                         search_pos = match_pos + 1
                         continue
 
+                    if global_offset in seen_offsets:
+                        search_pos = match_pos + self.sector_alignment
+                        continue
+
                     # Validation sémantique du candidat
                     try:
                         res = validator(self.reader, global_offset)
@@ -710,6 +863,7 @@ class SmartCarver:
                     if res:
                         length, meta, is_frag = res
                         if length > 0:
+                            seen_offsets.add(global_offset)
                             artefact_counter += 1
                             art_lba = global_offset // self.sector_size
                             end_lba = (global_offset + length - 1) // self.sector_size
@@ -736,9 +890,6 @@ class SmartCarver:
                             if artefact_callback:
                                 artefact_callback(art)
 
-                            search_pos = match_pos + max(self.sector_alignment, length)
-                            continue
-
                     search_pos = match_pos + self.sector_alignment
 
             current_lba += step_lba
@@ -747,6 +898,14 @@ class SmartCarver:
                 elapsed = max(0.001, time.time() - t_start)
                 speed = (bytes_scanned / (1024 * 1024)) / elapsed
                 progress_callback(current_lba - self.start_lba, total_lbas, speed, artefact_counter)
+
+        # Dé-tressage médico-légal automatique des flux entrelacés (BraidResolver)
+        try:
+            from core.defragmenter import BraidResolver
+            resolver = BraidResolver(self.reader)
+            resolver.resolve(self.carved_artefacts)
+        except Exception:
+            pass
 
         # Corrélation sémantique avec les répertoires orphelins (FAT / NTFS)
         try:
@@ -767,13 +926,5 @@ class SmartCarver:
 
     def extract_stream(self, artefact: CarvedArtefact) -> bytes:
         """Extrait le flux binaire de l'artefact en mémoire vive sans écriture disque."""
-        if artefact.block_list and "block_size" in artefact.metadata:
-            bs = artefact.metadata["block_size"]
-            buf = bytearray()
-            for blk in artefact.block_list:
-                chunk = self.reader.read_bytes(blk * bs, bs)
-                buf.extend(chunk)
-                if len(buf) >= artefact.length_bytes:
-                    break
-            return bytes(buf[:artefact.length_bytes])
-        return self.reader.read_bytes(artefact.start_offset, artefact.length_bytes)
+        from core.defragmenter import extract_stream_data
+        return extract_stream_data(self.reader, artefact)

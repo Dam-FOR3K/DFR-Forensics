@@ -510,7 +510,7 @@ class CarverDialog(QDialog):
         self.table.setItem(row, 6, QTableWidgetItem(art.display_size))
 
         detail_str = ""
-        if art.file_type in ("JPEG", "PNG"):
+        if art.file_type in ("JPEG", "PNG", "TIFF", "BMP", "GIF"):
             detail_str = art.metadata.get("resolution", "")
         elif art.file_type == "SQLite3":
             detail_str = art.metadata.get("tables_summary", "")
@@ -607,9 +607,9 @@ class CarverDialog(QDialog):
             art.md5 = hashlib.md5(full_bytes).hexdigest()
             art.sha256 = hashlib.sha256(full_bytes).hexdigest()
 
-        # 1. Aperçu Image Direct & Permissif (JPEG, PNG, BMP, GIF)
+        # 1. Aperçu Image Direct & Permissif (JPEG, PNG, BMP, GIF, TIFF)
         repair_notes = []
-        if art.category == "Images" or art.file_type in ("JPEG", "PNG", "BMP", "GIF"):
+        if art.category == "Images" or art.file_type in ("JPEG", "PNG", "BMP", "GIF", "TIFF"):
             self.lbl_image_preview.setVisible(True)
             pix, repair_notes = load_resilient_pixmap(raw_bytes, art.file_type)
             if pix and not pix.isNull():

@@ -19,6 +19,8 @@ tests/*.aff4
 tests/cli_repaired.raw
 tests/cli_patch.bin
 tests/test_repaired_disk.raw
+Sample/
+*.dd
 
 # OS specific
 .DS_Store

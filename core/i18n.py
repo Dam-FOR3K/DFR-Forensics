@@ -11,8 +11,8 @@ CURRENT_LANG = "fr"
 TRANSLATIONS: Dict[str, Dict[str, str]] = {
     # Fenêtre principale & En-tête
     "app_title": {
-        "fr": "DFR-Forensics : Disk & File Resurrection (v2.6.0)",
-        "en": "DFR-Forensics : Disk & File Resurrection (v2.6.0)",
+        "fr": "DFR-Forensics : Disk & File Resurrection (v2.7.0)",
+        "en": "DFR-Forensics : Disk & File Resurrection (v2.7.0)",
     },
     "header_no_image": {
         "fr": "<b>Image forensique :</b> Aucune image chargée (Glissez-déposez un fichier .raw, .e01, .aff4, .001 ici)",
