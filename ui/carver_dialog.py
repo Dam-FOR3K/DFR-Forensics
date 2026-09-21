@@ -161,7 +161,7 @@ class CarverDialog(QDialog):
         self.combo_align = QComboBox()
         is_fr = get_lang() == "fr"
         self.combo_align.addItem("512 octets (Secteurs standard - Recommandé)" if is_fr else "512 bytes (Standard sectors - Recommended)", 512)
-        self.combo_align.addItem("1 octet (Exhaustif / Non aligné / Fichiers décalés)" if is_fr else "1 byte (Exhaustive / Unaligned / Shifted files)", 1)
+        self.combo_align.addItem("1 octet (Exhaustif / Tout décalage - Fichiers décalés)" if is_fr else "1 byte (Exhaustive / Any offset - Shifted files)", 1)
         self.combo_align.addItem("4 096 octets (Clusters standard)" if is_fr else "4,096 bytes (Standard clusters)", 4096)
         self.combo_align.setStyleSheet("background: #222530; color: #fff; padding: 4px; border: 1px solid #444; border-radius: 3px;")
         row1.addWidget(self.combo_align)
@@ -446,7 +446,7 @@ class CarverDialog(QDialog):
             end_lba=end_lba,
             sector_alignment=alignment,
             enabled_categories=categories,
-            auto_unaligned_fallback=True,
+            auto_unaligned_fallback=False,
         )
 
         self.worker = CarverWorker(self.carver)
@@ -553,7 +553,10 @@ class CarverDialog(QDialog):
             self.table.selectRow(0)
             self.on_cell_clicked(0)
         else:
-            self.preview_text.setPlainText("Scan terminé. Aucun artefact valide découvert dans la plage sélectionnée.")
+            msg = "Scan terminé. Aucun artefact valide découvert dans la plage sélectionnée."
+            if self.carver and self.carver.sector_alignment > 1:
+                msg += "\n\n💡 Astuce médico-légale : Si l'image disque brute présente un décalage d'octets (fichiers non alignés sur les frontières de secteur), relancez le scan avec l'alignement '1 octet (Exhaustif / Tout décalage - Fichiers décalés)'."
+            self.preview_text.setPlainText(msg)
 
     def select_all_items(self):
         for row in range(self.table.rowCount()):

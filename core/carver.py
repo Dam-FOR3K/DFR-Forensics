@@ -266,7 +266,14 @@ def validate_tiff(reader: ForensicImageReader, start_offset: int, max_bytes: int
     Valide une image TIFF (Tagged Image File Format) selon la spécification TIFF 6.0.
     Prend en charge Little-Endian (II*\x00) et Big-Endian (MM\x00*).
     Parcourt l'IFD (Image File Directory) et calcule la taille exacte via les bandes/tuiles et balises.
+    Filtre les faux positifs (notamment les segments EXIF intégrés dans les fichiers JPEG).
     """
+    # 1. Vérification du contexte précédent pour éviter d'extraire les segments EXIF intégrés aux JPEG
+    if start_offset >= 6:
+        pre = reader.read_bytes(start_offset - 6, 6)
+        if pre == b"Exif\x00\x00":
+            return None
+
     hdr = reader.read_bytes(start_offset, 8)
     if len(hdr) < 8:
         return None
@@ -285,33 +292,15 @@ def validate_tiff(reader: ForensicImageReader, start_offset: int, max_bytes: int
     # Lire l'IFD
     ifd_hdr = reader.read_bytes(start_offset + first_ifd_offset, 2)
     if len(ifd_hdr) < 2:
-        meta = {
-            "file_type": "TIFF",
-            "extension": ".tiff",
-            "endianness": "Little" if endian == "<" else "Big",
-            "is_fragmented": True,
-        }
-        return first_ifd_offset + 512, meta, True
+        return None
 
     num_entries = struct.unpack(endian + "H", ifd_hdr)[0]
     if num_entries == 0 or num_entries > 4096:
-        meta = {
-            "file_type": "TIFF",
-            "extension": ".tiff",
-            "endianness": "Little" if endian == "<" else "Big",
-            "is_fragmented": True,
-        }
-        return first_ifd_offset + 512, meta, True
+        return None
 
     entries_data = reader.read_bytes(start_offset + first_ifd_offset + 2, num_entries * 12)
     if len(entries_data) < num_entries * 12:
-        meta = {
-            "file_type": "TIFF",
-            "extension": ".tiff",
-            "endianness": "Little" if endian == "<" else "Big",
-            "is_fragmented": True,
-        }
-        return first_ifd_offset + 512, meta, True
+        return None
 
     def type_size(t: int) -> int:
         return {1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 6: 1, 7: 1, 8: 2, 9: 4, 10: 8, 11: 4, 12: 8}.get(t, 1)
@@ -344,6 +333,14 @@ def validate_tiff(reader: ForensicImageReader, start_offset: int, max_bytes: int
         elif tag == 0x0145:  # TileByteCounts
             tile_counts_info = (cnt, typ, val)
 
+    # Un vrai fichier image TIFF autonome doit posséder des dimensions valides
+    if width <= 0 or height <= 0:
+        return None
+
+    # Un fichier TIFF complet doit avoir des données de strips ou de tiles pour l'affichage de l'image
+    if not strip_offsets_info and not tile_offsets_info:
+        return None
+
     def read_offsets(info):
         if not info:
             return []
@@ -372,7 +369,7 @@ def validate_tiff(reader: ForensicImageReader, start_offset: int, max_bytes: int
     meta = {
         "width": width,
         "height": height,
-        "resolution": f"{width}x{height}" if width and height else "Unknown",
+        "resolution": f"{width}x{height}",
         "file_type": "TIFF",
         "extension": ".tiff",
         "endianness": "Little" if endian == "<" else "Big",
@@ -768,7 +765,7 @@ class SmartCarver:
         end_lba: Optional[int] = None,
         sector_alignment: int = 512,
         enabled_categories: Optional[List[str]] = None,
-        auto_unaligned_fallback: bool = True,
+        auto_unaligned_fallback: bool = False,
     ):
         self.reader = reader
         self.sector_size = reader.sector_size

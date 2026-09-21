@@ -126,6 +126,32 @@ def test_validate_tiff_big_endian():
     assert not is_frag
 
 
+def test_validate_tiff_rejects_embedded_exif():
+    """Vérifie que les segments EXIF intégrés dans les JPEG ne sont pas carvers comme TIFF."""
+    raw_tiff = create_minimal_tiff(width=64, height=32, endian="<")
+    # Simuler un segment JPEG APP1 contenant Exif\x00\x00 suivi du header TIFF
+    jpeg_exif_prefix = b"\xFF\xE1\x00\x40Exif\x00\x00"
+    data = jpeg_exif_prefix + raw_tiff
+    reader = MockBytesReader(data)
+    # L'offset du header TIFF est len(jpeg_exif_prefix) = 10
+    res = validate_tiff(reader, len(jpeg_exif_prefix))
+    assert res is None, "Le validator TIFF doit rejeter un IFD précédé de Exif\\x00\\x00"
+
+
+def test_validate_tiff_rejects_no_strips():
+    """Vérifie qu'un en-tête TIFF sans StripOffsets ni TileOffsets est rejeté."""
+    buf = bytearray()
+    buf.extend(b"II*\x00\x08\x00\x00\x00")  # Header TIFF Little Endian pointant à offset 8
+    # 2 entries: ImageWidth (0x100) et ImageLength (0x101) sans StripOffsets
+    buf.extend(struct.pack("<H", 2))
+    buf.extend(struct.pack("<HHII", 0x0100, 3, 1, 100))  # Width = 100
+    buf.extend(struct.pack("<HHII", 0x0101, 3, 1, 80))   # Height = 80
+    buf.extend(struct.pack("<I", 0))
+    reader = MockBytesReader(bytes(buf))
+    res = validate_tiff(reader, 0)
+    assert res is None, "Le validator TIFF doit rejeter un IFD sans strips/tiles"
+
+
 def test_validate_bmp_v3_header():
     """Valide les bitmaps Windows avec en-tête BITMAPV3INFOHEADER (56 octets)."""
     # Header: BM (2) + size (4) + reserved (4) + offset (4) = 14 bytes
