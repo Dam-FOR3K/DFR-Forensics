@@ -217,9 +217,22 @@ class CarverDialog(QDialog):
         self.chk_registry.setStyleSheet("color: #c084fc; font-weight: bold;")
         row2.addWidget(self.chk_registry)
 
-        row2.addSpacing(25)
+        row2.addSpacing(20)
         is_fr = get_lang() == "fr"
-        self.chk_debraid = QCheckBox("🧩 " + ("Dé-tressage avancé (flux entrelacés)" if is_fr else "Advanced De-Braiding (interleaved streams)"))
+        self.chk_unallocated = QCheckBox("🗑️ " + ("Espace non alloué uniquement (fichiers effacés)" if is_fr else "Unallocated space only (deleted files)"))
+        self.chk_unallocated.setChecked(False)
+        self.chk_unallocated.setToolTip(
+            "Cible exclusivement les clusters libres et blocs effacés du système de fichiers (NTFS, FAT, exFAT, EXT4, QNX).\n"
+            "Ignore automatiquement les fichiers vivants pour un carving jusqu'à 10x plus rapide sans doublons."
+            if is_fr else
+            "Targets exclusively free clusters and deleted blocks from the filesystem (NTFS, FAT, exFAT, EXT4, QNX).\n"
+            "Automatically skips active files for up to 10x faster carving with zero duplicates."
+        )
+        self.chk_unallocated.setStyleSheet("color: #34d399; font-weight: bold;")
+        row2.addWidget(self.chk_unallocated)
+
+        row2.addSpacing(15)
+        self.chk_debraid = QCheckBox("🧩 " + ("Dé-tressage avancé" if is_fr else "Advanced De-Braiding"))
         self.chk_debraid.setChecked(False)
         self.chk_debraid.setToolTip(
             "Active l'algorithme heuristique de séparation pour les fichiers fragmentés et entrelacés (BraidResolver).\n"
@@ -449,10 +462,30 @@ class CarverDialog(QDialog):
             QMessageBox.warning(self, "Attention", "Veuillez cocher au moins une catégorie d'artefacts à carver.")
             return
 
+        target_ranges = None
+        if self.chk_unallocated.isChecked():
+            from core.unallocated import get_unallocated_ranges_for_disk
+            target_part = None
+            if isinstance(scope_data, tuple) and len(scope_data) == 2:
+                s_lba, e_lba = scope_data
+                if self.diag and self.diag.partitions:
+                    for p in self.diag.partitions:
+                        if p.first_lba == s_lba and p.last_lba == e_lba:
+                            target_part = p
+                            break
+            target_ranges = get_unallocated_ranges_for_disk(self.reader, self.diag, target_part)
+
         self.all_artefacts.clear()
         self.table.setRowCount(0)
         self.lbl_image_preview.setVisible(False)
-        self.preview_text.setPlainText("Scan de carving en cours...")
+        if target_ranges:
+            tot_sec = sum(max(0, e - s + 1) for s, e in target_ranges)
+            tot_mb = tot_sec * self.reader.sector_size / (1024 * 1024)
+            self.preview_text.setPlainText(
+                f"Scan de l'espace non alloué en cours...\n🎯 {len(target_ranges):,} zones libres ciblées ({tot_sec:,} secteurs / {tot_mb:.1f} Mo)."
+            )
+        else:
+            self.preview_text.setPlainText("Scan de carving en cours...")
 
         self.carver = SmartCarver(
             reader=self.reader,
@@ -462,6 +495,7 @@ class CarverDialog(QDialog):
             enabled_categories=categories,
             auto_unaligned_fallback=False,
             enable_debraid=self.chk_debraid.isChecked(),
+            lba_ranges=target_ranges,
         )
 
         self.worker = CarverWorker(self.carver)

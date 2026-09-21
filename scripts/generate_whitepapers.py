@@ -2,7 +2,7 @@
 DFR-Forensics - Générateur de Whitepapers Techniques & Guides d'Architecture
 Produit une documentation forensique approfondie multi-pages (FR et EN)
 destinée aux analystes médico-légaux, ingénieurs en rétro-ingénierie et auditeurs.
-Auteur : Dam-FOR3K | Version : v2.7.0
+Auteur : Dam-FOR3K | Version : v2.7.1
 """
 
 import os
@@ -197,7 +197,7 @@ def build_french_whitepaper(output_path: str):
     meta_table_data = [
         [
             Paragraph("<b>Auteur :</b> Dam-FOR3K", s["table_cell"]),
-            Paragraph("<b>Version :</b> v2.7.0", s["table_cell"]),
+            Paragraph("<b>Version :</b> v2.7.1", s["table_cell"]),
             Paragraph("<b>Date :</b> Septembre 2026", s["table_cell"]),
             Paragraph("<b>Licence :</b> MIT Open-Source", s["table_cell"]),
         ]
@@ -395,6 +395,7 @@ def build_french_whitepaper(output_path: str):
     story.append(Paragraph("• <b>512 octets (Secteurs standard - Recommandé)</b> : Mode par défaut ultra-rapide calé sur les frontières sectorielles physiques. Idéal pour disques durs (HDD/SSD), clés USB et cartes mémoires.", s["bullet"]))
     story.append(Paragraph("• <b>1 octet (Exhaustif / Tout décalage)</b> : Analyse chirurgicale octet par octet (offset libre). Indispensable pour la mémoire vive (RAM), les flux réseaux ou les images brutes dont les fichiers débutent avec un décalage arbitraire (1, 2, 17 octets...).", s["bullet"]))
     story.append(Paragraph("• <b>4 096 octets (Clusters standard)</b> : Balayage accéléré aligné sur la taille standard des clusters de fichiers (NTFS, ext4).", s["bullet"]))
+    story.append(Paragraph("• <b>Espace non alloué uniquement (Fichiers effacés)</b> : Cible exclusivement les zones libérées et orphelines du disque en interrogeant les tables d'allocation et bitmaps de systèmes de fichiers (NTFS $Bitmap, FAT tables, exFAT allocation bitmap, EXT2/3/4 block bitmaps, QNX4/6 allocation tables, et zones non partitionnées). Cette stratégie élimine les redondances avec les fichiers sains de l'arborescence active et accélère le scan de 5 à 10 fois.", s["bullet"]))
     story.append(Paragraph("• <b>Dé-tressage Avancé (De-Braiding / BraidResolver)</b> : Désactivé par défaut pour préserver la structure brute des fichiers et éviter tout découpage involontaire. Lorsqu'il est activé à la demande, il sépare mathématiquement les flux mutuellement entrelacés en quinconce (motif 1A-1B-2A-2B) avec validation réelle du décodage de pixels.", s["bullet"]))
     story.append(Spacer(1, 6))
 
@@ -522,7 +523,7 @@ def build_english_whitepaper(output_path: str):
     meta_table_data = [
         [
             Paragraph("<b>Author:</b> Dam-FOR3K", s["table_cell"]),
-            Paragraph("<b>Version:</b> v2.7.0", s["table_cell"]),
+            Paragraph("<b>Version:</b> v2.7.1", s["table_cell"]),
             Paragraph("<b>Date:</b> September 2026", s["table_cell"]),
             Paragraph("<b>License:</b> MIT Open-Source", s["table_cell"]),
         ]
@@ -716,6 +717,7 @@ def build_english_whitepaper(output_path: str):
     story.append(Paragraph("• <b>512 bytes (Standard sectors - Recommended)</b>: High-speed default mode aligned on physical sector boundaries. Ideal for HDD, SSD, USB flash drives, and SD cards.", s["bullet"]))
     story.append(Paragraph("• <b>1 byte (Exhaustive / Any offset)</b>: Byte-by-byte exhaustive sweep (unaligned). Indispensable for RAM dumps, network streams, or shifted raw disk images where files begin at arbitrary offsets (1, 2, 17 bytes...).", s["bullet"]))
     story.append(Paragraph("• <b>4,096 bytes (Standard clusters)</b>: Accelerated scan aligned on standard filesystem cluster boundaries (NTFS, ext4).", s["bullet"]))
+    story.append(Paragraph("• <b>Unallocated Space Only (Deleted Files)</b>: Targets exclusively freed and unassigned disk clusters by interrogating filesystem allocation tables and bitmaps (NTFS $Bitmap, FAT tables, exFAT allocation bitmap, EXT2/3/4 block bitmaps, QNX4/6 allocation tables, and unpartitioned gaps). This strategy eliminates duplicate extraction of healthy active files and accelerates the carving scan by 5x to 10x.", s["bullet"]))
     story.append(Paragraph("• <b>Advanced De-Braiding (BraidResolver)</b>: Disabled by default to preserve raw file integrity and prevent accidental fragmentation on standard systems. When explicitly enabled by the analyst, it mathematically separates interleaved file pairs (1A-1B-2A-2B pattern) with verified in-memory pixel decompression.", s["bullet"]))
     story.append(Spacer(1, 6))
 

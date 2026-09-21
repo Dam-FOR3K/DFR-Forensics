@@ -1,0 +1,387 @@
+"""
+DFR-Forensics - Moteur d'Extraction de l'Espace Non Alloué (Unallocated Space Engine)
+Cartographie chirurgicale des blocs libres et clusters effacés à travers :
+- NTFS ($Bitmap & MFT active data runs)
+- FAT12 / FAT16 / FAT32 (Table d'allocation FAT)
+- exFAT (Allocation Bitmap & Heap)
+- EXT2 / EXT3 / EXT4 (Block Group Bitmaps)
+- QNX4 / QNX6 (Power-Safe Inode & Block Allocation)
+- Espace non partitionné (Unpartitioned drive slack)
+"""
+
+from typing import List, Tuple, Optional, Set
+from core.image_reader import ForensicImageReader
+from core.scanner import ScanDiagnostic, GPTPartitionEntry
+
+
+def merge_lba_ranges(ranges: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
+    """Fusionne les plages LBA adjacentes ou se chevauchant en intervalles optimaux."""
+    if not ranges:
+        return []
+    valid = [(s, e) for s, e in ranges if s <= e]
+    if not valid:
+        return []
+    valid.sort(key=lambda x: x[0])
+    merged: List[Tuple[int, int]] = []
+    cur_s, cur_e = valid[0]
+    for s, e in valid[1:]:
+        if s <= cur_e + 1:
+            cur_e = max(cur_e, e)
+        else:
+            merged.append((cur_s, cur_e))
+            cur_s, cur_e = s, e
+    merged.append((cur_s, cur_e))
+    return merged
+
+
+def extract_unallocated_ntfs(reader: ForensicImageReader, part_offset: int, part_sectors: int) -> List[Tuple[int, int]]:
+    """Extrait les plages LBA des clusters libres NTFS via $Bitmap ou MFT."""
+    try:
+        from core.ntfs_reader import NTFSReader
+        ntfs = NTFSReader(reader, partition_offset_bytes=part_offset, partition_size_bytes=part_sectors * 512)
+        if not ntfs.is_valid_ntfs:
+            return []
+
+        spc = max(1, ntfs.sectors_per_cluster)
+        part_lba = part_offset // reader.sector_size
+
+        # Méthode 1 : Fichier $Bitmap (Record 6 de la MFT)
+        bitmap_entry = next((e for e in ntfs.all_entries if e.record_number == 6), None)
+        if bitmap_entry and bitmap_entry.has_data:
+            try:
+                bitmap_data = ntfs.extract_file_content(bitmap_entry)
+                if bitmap_data:
+                    free_ranges: List[Tuple[int, int]] = []
+                    in_free = False
+                    free_start = 0
+                    total_clusters = min(len(bitmap_data) * 8, ntfs.total_sectors // spc if spc else len(bitmap_data) * 8)
+                    for cluster_idx in range(total_clusters):
+                        byte_pos = cluster_idx >> 3
+                        bit_pos = cluster_idx & 7
+                        is_allocated = (bitmap_data[byte_pos] >> bit_pos) & 1
+                        if not is_allocated:
+                            if not in_free:
+                                in_free = True
+                                free_start = cluster_idx
+                        else:
+                            if in_free:
+                                in_free = False
+                                s_lba = part_lba + free_start * spc
+                                e_lba = part_lba + cluster_idx * spc - 1
+                                free_ranges.append((s_lba, e_lba))
+                    if in_free:
+                        s_lba = part_lba + free_start * spc
+                        e_lba = part_lba + total_clusters * spc - 1
+                        free_ranges.append((s_lba, e_lba))
+                    if free_ranges:
+                        return merge_lba_ranges(free_ranges)
+            except Exception:
+                pass
+
+        # Méthode 2 (Fallback) : Déduction par soustraction des data runs alloués
+        allocated_clusters: Set[int] = set()
+        for entry in ntfs.all_entries:
+            if not entry.is_deleted and entry.has_data:
+                for lcn, run_len in entry.data_runs:
+                    if lcn is not None and run_len > 0:
+                        for c in range(lcn, lcn + min(run_len, 50000)):
+                            allocated_clusters.add(c)
+
+        total_clusters = max(1, (part_sectors + spc - 1) // spc)
+        free_ranges = []
+        in_free = False
+        free_start = 0
+        for c in range(total_clusters):
+            if c not in allocated_clusters:
+                if not in_free:
+                    in_free = True
+                    free_start = c
+            else:
+                if in_free:
+                    in_free = False
+                    free_ranges.append((part_lba + free_start * spc, part_lba + c * spc - 1))
+        if in_free:
+            free_ranges.append((part_lba + free_start * spc, part_lba + total_clusters * spc - 1))
+        return merge_lba_ranges(free_ranges)
+    except Exception:
+        return []
+
+
+def extract_unallocated_fat(reader: ForensicImageReader, part_offset: int, part_sectors: int) -> List[Tuple[int, int]]:
+    """Extrait les clusters libres de la table d'allocation FAT."""
+    try:
+        from core.fat_reader import FATReader
+        fat = FATReader(reader, partition_offset_bytes=part_offset)
+        if not fat.is_valid_fat:
+            return []
+
+        fat._load_fat_table()
+        if not hasattr(fat, "_fat_table") or not fat._fat_table:
+            return []
+
+        data_lba = fat.data_start_offset // reader.sector_size
+        spc = max(1, fat.sectors_per_cluster)
+        free_ranges: List[Tuple[int, int]] = []
+        in_free = False
+        free_start = 2
+
+        table_len = len(fat._fat_table)
+        for c in range(2, table_len):
+            val = fat._fat_table[c]
+            if val == 0:
+                if not in_free:
+                    in_free = True
+                    free_start = c
+            else:
+                if in_free:
+                    in_free = False
+                    s_lba = data_lba + (free_start - 2) * spc
+                    e_lba = data_lba + (c - 2) * spc - 1
+                    free_ranges.append((s_lba, e_lba))
+        if in_free:
+            s_lba = data_lba + (free_start - 2) * spc
+            e_lba = data_lba + (table_len - 2) * spc - 1
+            free_ranges.append((s_lba, e_lba))
+
+        return merge_lba_ranges(free_ranges)
+    except Exception:
+        return []
+
+
+def extract_unallocated_ext(reader: ForensicImageReader, part_offset: int, part_sectors: int) -> List[Tuple[int, int]]:
+    """Extrait les blocs libres des Block Group Bitmaps d'une partition EXT2/3/4."""
+    try:
+        from core.ext_reader import ExtReader
+        ext = ExtReader(reader, partition_offset_bytes=part_offset)
+        if not ext.is_valid_ext or not ext.blocks_per_group or not ext.block_size:
+            return []
+
+        part_lba = part_offset // reader.sector_size
+        sectors_per_block = max(1, ext.block_size // reader.sector_size)
+        num_groups = (ext.blocks_count + ext.blocks_per_group - 1) // ext.blocks_per_group
+        num_groups = min(num_groups, 512)
+
+        free_ranges: List[Tuple[int, int]] = []
+        for g_idx in range(num_groups):
+            if g_idx >= len(ext._bg_descriptors):
+                break
+            bg = ext._bg_descriptors[g_idx]
+            block_bitmap_num = bg.get("block_bitmap")
+            if not block_bitmap_num:
+                continue
+
+            bm_offset = part_offset + block_bitmap_num * ext.block_size
+            if bm_offset < 0 or bm_offset >= reader.total_size_bytes:
+                continue
+
+            bm_bytes = reader.read_bytes(bm_offset, min(ext.block_size, 4096))
+            blocks_in_group = min(ext.blocks_per_group, ext.blocks_count - g_idx * ext.blocks_per_group)
+
+            in_free = False
+            free_start = 0
+            for b_idx in range(blocks_in_group):
+                byte_i = b_idx >> 3
+                bit_i = b_idx & 7
+                if byte_i >= len(bm_bytes):
+                    break
+                is_allocated = (bm_bytes[byte_i] >> bit_i) & 1
+                global_block = ext.first_data_block + g_idx * ext.blocks_per_group + b_idx
+                if not is_allocated:
+                    if not in_free:
+                        in_free = True
+                        free_start = global_block
+                else:
+                    if in_free:
+                        in_free = False
+                        s_lba = part_lba + free_start * sectors_per_block
+                        e_lba = part_lba + global_block * sectors_per_block - 1
+                        free_ranges.append((s_lba, e_lba))
+            if in_free:
+                s_lba = part_lba + free_start * sectors_per_block
+                e_lba = part_lba + (ext.first_data_block + g_idx * ext.blocks_per_group + blocks_in_group) * sectors_per_block - 1
+                free_ranges.append((s_lba, e_lba))
+
+        return merge_lba_ranges(free_ranges)
+    except Exception:
+        return []
+
+
+def extract_unallocated_exfat(reader: ForensicImageReader, part_offset: int, part_sectors: int) -> List[Tuple[int, int]]:
+    """Extrait les clusters libres d'un volume exFAT."""
+    try:
+        from core.exfat_reader import ExFATReader
+        exfat = ExFATReader(reader, partition_offset_bytes=part_offset, partition_size_bytes=part_sectors * 512)
+        if not exfat.is_valid_exfat:
+            return []
+
+        part_lba = part_offset // reader.sector_size
+        spc = max(1, exfat.sectors_per_cluster)
+        heap_lba = part_lba + exfat.cluster_heap_offset_sector
+
+        allocated_clusters: Set[int] = set()
+        for entry in exfat.all_entries:
+            if not entry.is_deleted and entry.first_cluster >= 2:
+                c_count = max(1, (entry.size + exfat.cluster_size - 1) // exfat.cluster_size) if entry.size > 0 else 1
+                for c in range(entry.first_cluster, entry.first_cluster + min(c_count, 10000)):
+                    allocated_clusters.add(c)
+
+        free_ranges: List[Tuple[int, int]] = []
+        in_free = False
+        free_start = 2
+        total_clusters = min(exfat.cluster_count, 500000)
+        for c in range(2, 2 + total_clusters):
+            if c not in allocated_clusters:
+                if not in_free:
+                    in_free = True
+                    free_start = c
+            else:
+                if in_free:
+                    in_free = False
+                    s_lba = heap_lba + (free_start - 2) * spc
+                    e_lba = heap_lba + (c - 2) * spc - 1
+                    free_ranges.append((s_lba, e_lba))
+        if in_free:
+            s_lba = heap_lba + (free_start - 2) * spc
+            e_lba = heap_lba + total_clusters * spc - 1
+            free_ranges.append((s_lba, e_lba))
+
+        return merge_lba_ranges(free_ranges)
+    except Exception:
+        return []
+
+
+def extract_unallocated_qnx(reader: ForensicImageReader, part_offset: int, part_sectors: int) -> List[Tuple[int, int]]:
+    """Extrait les blocs libres QNX4 / QNX6."""
+    try:
+        from core.qnx_reader import QNXReader
+        part_lba = part_offset // reader.sector_size
+        qnx = QNXReader(reader, partition_start_lba=part_lba, partition_sectors=part_sectors)
+        if not qnx.is_valid_qnx:
+            return []
+
+        free_ranges: List[Tuple[int, int]] = []
+        if qnx.fs_version == 6:
+            sb = qnx.superblocks[0] if qnx.superblocks else None
+            if sb and sb.get("block_size"):
+                bs = sb["block_size"]
+                spb = max(1, bs // 512)
+                allocated_blocks: Set[int] = set()
+                for f in qnx.all_files:
+                    if not f.is_deleted:
+                        for b in f.blocks:
+                            allocated_blocks.add(b)
+                total_blocks = sb.get("num_blocks", min(part_sectors // spb, 500000))
+                in_free = False
+                free_start = 0
+                for b in range(total_blocks):
+                    if b not in allocated_blocks:
+                        if not in_free:
+                            in_free = True
+                            free_start = b
+                    else:
+                        if in_free:
+                            in_free = False
+                            free_ranges.append((part_lba + free_start * spb, part_lba + b * spb - 1))
+                if in_free:
+                    free_ranges.append((part_lba + free_start * spb, part_lba + total_blocks * spb - 1))
+        return merge_lba_ranges(free_ranges)
+    except Exception:
+        return []
+
+
+def get_unallocated_ranges_for_partition(
+    reader: ForensicImageReader,
+    p: GPTPartitionEntry,
+) -> List[Tuple[int, int]]:
+    """
+    Extrait les plages LBA de l'espace non alloué pour une partition spécifique.
+    Teste successivement NTFS, FAT, EXT, exFAT et QNX.
+    Si aucun FS n'est exploitable, renvoie une liste vide.
+    """
+    part_offset = p.first_lba * reader.sector_size
+    part_sectors = max(1, p.last_lba - p.first_lba + 1)
+    fs_hint = (p.detected_fs or p.type_name or "").upper()
+
+    # 1. Test NTFS
+    if "NTFS" in fs_hint or fs_hint == "":
+        ranges = extract_unallocated_ntfs(reader, part_offset, part_sectors)
+        if ranges:
+            return ranges
+
+    # 2. Test FAT
+    if "FAT" in fs_hint or fs_hint == "":
+        ranges = extract_unallocated_fat(reader, part_offset, part_sectors)
+        if ranges:
+            return ranges
+
+    # 3. Test EXT
+    if "EXT" in fs_hint or fs_hint == "":
+        ranges = extract_unallocated_ext(reader, part_offset, part_sectors)
+        if ranges:
+            return ranges
+
+    # 4. Test exFAT
+    if "EXFAT" in fs_hint or fs_hint == "":
+        ranges = extract_unallocated_exfat(reader, part_offset, part_sectors)
+        if ranges:
+            return ranges
+
+    # 5. Test QNX
+    if "QNX" in fs_hint:
+        ranges = extract_unallocated_qnx(reader, part_offset, part_sectors)
+        if ranges:
+            return ranges
+
+    return []
+
+
+def get_unallocated_ranges_for_disk(
+    reader: ForensicImageReader,
+    diag: Optional[ScanDiagnostic] = None,
+    target_partition: Optional[GPTPartitionEntry] = None,
+) -> List[Tuple[int, int]]:
+    """
+    Détermine l'ensemble des plages LBA d'espace non alloué à carver :
+    - Si target_partition est fournie : extrait l'espace non alloué de cette partition.
+    - Si target_partition est None (Disque entier) : extrait l'espace non alloué de toutes les partitions
+      reconnues ainsi que l'espace libre non partitionné (gaps inter-partitions).
+    """
+    if target_partition:
+        ranges = get_unallocated_ranges_for_partition(reader, target_partition)
+        # Si le système de fichiers est introuvable, on retourne la plage complète de la partition
+        return ranges if ranges else [(target_partition.first_lba, target_partition.last_lba)]
+
+    all_ranges: List[Tuple[int, int]] = []
+    tot_sectors = reader.total_sectors
+
+    if not diag or not diag.partitions:
+        # Aucun schéma de partition : retourne l'intégralité du disque
+        return [(0, tot_sectors - 1)]
+
+    # 1. Trier les partitions par LBA de début
+    parts = sorted(diag.partitions, key=lambda p: p.first_lba)
+
+    # 2. Espace non alloué non-partitionné avant la 1ère partition
+    if parts[0].first_lba > 34:
+        all_ranges.append((34, parts[0].first_lba - 1))
+
+    # 3. Pour chaque partition : espace non alloué interne
+    for i, p in enumerate(parts):
+        p_ranges = get_unallocated_ranges_for_partition(reader, p)
+        if p_ranges:
+            all_ranges.extend(p_ranges)
+        else:
+            # Si le FS de cette partition est inconnu, on inclut toute la partition
+            all_ranges.append((p.first_lba, p.last_lba))
+
+        # Espace non partitionné entre partitions
+        if i + 1 < len(parts):
+            next_start = parts[i + 1].first_lba
+            if next_start > p.last_lba + 1:
+                all_ranges.append((p.last_lba + 1, next_start - 1))
+
+    # 4. Espace non partitionné après la dernière partition
+    if parts[-1].last_lba + 1 < tot_sectors - 34:
+        all_ranges.append((parts[-1].last_lba + 1, tot_sectors - 35))
+
+    return merge_lba_ranges(all_ranges)

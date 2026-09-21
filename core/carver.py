@@ -824,6 +824,7 @@ class SmartCarver:
         enabled_categories: Optional[List[str]] = None,
         auto_unaligned_fallback: bool = False,
         enable_debraid: bool = False,
+        lba_ranges: Optional[List[Tuple[int, int]]] = None,
     ):
         self.reader = reader
         self.sector_size = reader.sector_size
@@ -833,6 +834,7 @@ class SmartCarver:
         self.enabled_categories = enabled_categories or ["Images", "Databases", "Documents", "Logs", "Registry", "Archives"]
         self.auto_unaligned_fallback = auto_unaligned_fallback
         self.enable_debraid = enable_debraid
+        self.lba_ranges = lba_ranges
 
         self.carved_artefacts: List[CarvedArtefact] = []
         self._is_cancelled = False
@@ -852,12 +854,17 @@ class SmartCarver:
 
     def scan(self, progress_callback: Optional[Callable[[int, int, float, int], None]] = None, artefact_callback: Optional[Callable[[CarvedArtefact], None]] = None) -> List[CarvedArtefact]:
         """
-        Exécute le balayage intelligent de la plage LBA définie.
+        Exécute le balayage intelligent de la plage LBA définie ou des intervalles ciblés (espace non alloué).
         progress_callback: (processed_lba, total_lba, speed_mbs, total_found)
         artefact_callback: (artefact)
         """
-        total_lbas = max(1, self.end_lba - self.start_lba + 1)
-        current_lba = self.start_lba
+        if self.lba_ranges and len(self.lba_ranges) > 0:
+            ranges_to_scan = self.lba_ranges
+        else:
+            ranges_to_scan = [(self.start_lba, self.end_lba)]
+
+        total_lbas = max(1, sum(max(0, e - s + 1) for s, e in ranges_to_scan))
+        processed_lbas = 0
         chunk_lbas = 4096  # 2 Mo par itération (à 512 o/secteur)
         artefact_counter = 0
 
@@ -871,91 +878,95 @@ class SmartCarver:
         bytes_scanned = 0
         seen_offsets = set()
 
-        while current_lba <= self.end_lba and not self._is_cancelled:
-            while self._is_paused and not self._is_cancelled:
-                time.sleep(0.1)
+        for r_start, r_end in ranges_to_scan:
+            current_lba = r_start
+            while current_lba <= r_end and not self._is_cancelled:
+                while self._is_paused and not self._is_cancelled:
+                    time.sleep(0.1)
 
-            step_lba = min(chunk_lbas, self.end_lba - current_lba + 1)
-            chunk_bytes_len = step_lba * self.sector_size
-            chunk_offset = current_lba * self.sector_size
+                step_lba = min(chunk_lbas, r_end - current_lba + 1)
+                chunk_bytes_len = step_lba * self.sector_size
+                chunk_offset = current_lba * self.sector_size
 
-            raw_chunk = self.reader.read_bytes(chunk_offset, chunk_bytes_len)
-            if not raw_chunk:
-                break
+                raw_chunk = self.reader.read_bytes(chunk_offset, chunk_bytes_len)
+                if not raw_chunk:
+                    break
 
-            bytes_scanned += len(raw_chunk)
+                bytes_scanned += len(raw_chunk)
 
-            # ACCÉLÉRATION TRIAGE SPATIAL : Si le bloc est 100% zéros, sauter instantanément !
-            if raw_chunk == b"\x00" * len(raw_chunk):
+                # ACCÉLÉRATION TRIAGE SPATIAL : Si le bloc est 100% zéros, sauter instantanément !
+                if raw_chunk == b"\x00" * len(raw_chunk):
+                    current_lba += step_lba
+                    processed_lbas += step_lba
+                    if progress_callback:
+                        elapsed = max(0.001, time.time() - t_start)
+                        speed = (bytes_scanned / (1024 * 1024)) / elapsed
+                        progress_callback(processed_lbas, total_lbas, speed, artefact_counter)
+                    continue
+
+                # Recherche des signatures magiques au sein du bloc
+                for sig, cat, ftype, ext, validator in active_dispatch:
+                    search_pos = 0
+                    while search_pos < len(raw_chunk):
+                        match_pos = raw_chunk.find(sig, search_pos)
+                        if match_pos == -1:
+                            break
+
+                        # Vérification d'alignement sectoriel (512 ou 4096 octets)
+                        global_offset = chunk_offset + match_pos
+                        if global_offset % self.sector_alignment != 0:
+                            search_pos = match_pos + 1
+                            continue
+
+                        if global_offset in seen_offsets:
+                            search_pos = match_pos + self.sector_alignment
+                            continue
+
+                        # Validation sémantique du candidat
+                        try:
+                            res = validator(self.reader, global_offset)
+                        except Exception:
+                            res = None
+
+                        if res:
+                            length, meta, is_frag = res
+                            if length > 0:
+                                seen_offsets.add(global_offset)
+                                artefact_counter += 1
+                                art_lba = global_offset // self.sector_size
+                                end_lba = (global_offset + length - 1) // self.sector_size
+
+                                final_type = meta.get("file_type", ftype)
+                                final_ext = meta.get("extension", ext)
+                                final_cat = "Documents" if final_type in ("DOCX", "XLSX", "PPTX") else cat
+
+                                art = CarvedArtefact(
+                                    artefact_id=artefact_counter,
+                                    category=final_cat,
+                                    file_type=final_type,
+                                    extension=final_ext,
+                                    start_lba=art_lba,
+                                    start_offset=global_offset,
+                                    length_bytes=length,
+                                    end_lba=end_lba,
+                                    filename=f"artefact_{artefact_counter:04d}{final_ext}",
+                                    is_valid=True,
+                                    is_fragmented=is_frag,
+                                    metadata=meta,
+                                )
+                                self.carved_artefacts.append(art)
+                                if artefact_callback:
+                                    artefact_callback(art)
+
+                        search_pos = match_pos + self.sector_alignment
+
                 current_lba += step_lba
+                processed_lbas += step_lba
+
                 if progress_callback:
                     elapsed = max(0.001, time.time() - t_start)
                     speed = (bytes_scanned / (1024 * 1024)) / elapsed
-                    progress_callback(current_lba - self.start_lba, total_lbas, speed, artefact_counter)
-                continue
-
-            # Recherche des signatures magiques au sein du bloc
-            for sig, cat, ftype, ext, validator in active_dispatch:
-                search_pos = 0
-                while search_pos < len(raw_chunk):
-                    match_pos = raw_chunk.find(sig, search_pos)
-                    if match_pos == -1:
-                        break
-
-                    # Vérification d'alignement sectoriel (512 ou 4096 octets)
-                    global_offset = chunk_offset + match_pos
-                    if global_offset % self.sector_alignment != 0:
-                        search_pos = match_pos + 1
-                        continue
-
-                    if global_offset in seen_offsets:
-                        search_pos = match_pos + self.sector_alignment
-                        continue
-
-                    # Validation sémantique du candidat
-                    try:
-                        res = validator(self.reader, global_offset)
-                    except Exception:
-                        res = None
-
-                    if res:
-                        length, meta, is_frag = res
-                        if length > 0:
-                            seen_offsets.add(global_offset)
-                            artefact_counter += 1
-                            art_lba = global_offset // self.sector_size
-                            end_lba = (global_offset + length - 1) // self.sector_size
-
-                            final_type = meta.get("file_type", ftype)
-                            final_ext = meta.get("extension", ext)
-                            final_cat = "Documents" if final_type in ("DOCX", "XLSX", "PPTX") else cat
-
-                            art = CarvedArtefact(
-                                artefact_id=artefact_counter,
-                                category=final_cat,
-                                file_type=final_type,
-                                extension=final_ext,
-                                start_lba=art_lba,
-                                start_offset=global_offset,
-                                length_bytes=length,
-                                end_lba=end_lba,
-                                filename=f"artefact_{artefact_counter:04d}{final_ext}",
-                                is_valid=True,
-                                is_fragmented=is_frag,
-                                metadata=meta,
-                            )
-                            self.carved_artefacts.append(art)
-                            if artefact_callback:
-                                artefact_callback(art)
-
-                    search_pos = match_pos + self.sector_alignment
-
-            current_lba += step_lba
-
-            if progress_callback:
-                elapsed = max(0.001, time.time() - t_start)
-                speed = (bytes_scanned / (1024 * 1024)) / elapsed
-                progress_callback(current_lba - self.start_lba, total_lbas, speed, artefact_counter)
+                    progress_callback(processed_lbas, total_lbas, speed, artefact_counter)
 
         # Dé-tressage médico-légal heuristique des flux entrelacés (BraidResolver) - Optionnel
         if self.enable_debraid:
