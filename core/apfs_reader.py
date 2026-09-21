@@ -88,7 +88,7 @@ class APFSReader:
                             root_node = vol.get("/")
                             v_info.root_entry = APFSFileEntry(name=f"/ [{vol_name}]", path="/", is_dir=True, node=root_node)
                             v_info.all_entries.append(v_info.root_entry)
-                            self._traverse(root_node, v_info.root_entry, "/", v_info)
+                            self._traverse(root_node, v_info.root_entry, "/", v_info, max_depth=1)
                         except Exception:
                             pass
 

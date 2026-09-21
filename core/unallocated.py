@@ -292,131 +292,167 @@ def extract_unallocated_qnx(reader: ForensicImageReader, part_offset: int, part_
 def extract_unallocated_apfs(reader: ForensicImageReader, part_offset: int, part_sectors: int) -> List[Tuple[int, int]]:
     """
     Extrait les plages LBA des blocs libres APFS via le Space Manager (Spaceman)
-    ou par calcul des zones allouées du conteneur NXSB.
+    ou par inversion mathématique d'intervalles des conteneurs NXSB.
     """
     try:
-        import dissect.apfs as apfs
-        import dissect.apfs.c_apfs as c
-        from core.crypto_engine import PartitionStream
+        import struct
 
-        stream = PartitionStream(reader, part_offset, part_sectors * reader.sector_size)
         hdr = reader.read_bytes(part_offset, 4096)
-        if b"NXSB" not in hdr[:64]:
+        if len(hdr) < 64:
             return []
 
-        container = apfs.APFS(stream)
-        sb = container.sb
-        block_size = getattr(sb, "block_size", 4096) or 4096
+        # En APFS, nx_magic 'NXSB' se trouve à l'offset 32 du bloc
+        magic_offset = -1
+        if hdr[32:36] == b"NXSB":
+            magic_offset = 32
+        elif hdr[:4] == b"NXSB":
+            magic_offset = 0
+
+        if magic_offset == -1:
+            return []
+
+        block_size = struct.unpack_from("<I", hdr, 36)[0] if magic_offset == 32 else 4096
+        if block_size not in (512, 1024, 2048, 4096, 8192, 16384):
+            block_size = 4096
+
+        total_blocks = struct.unpack_from("<Q", hdr, 40)[0] if magic_offset == 32 else (part_sectors * reader.sector_size // block_size)
         spb = max(1, block_size // reader.sector_size)
         part_lba = part_offset // reader.sector_size
-        total_blocks = getattr(sb, "block_count", 0) or (part_sectors // spb)
+
+        if total_blocks <= 0 or total_blocks > (part_sectors // spb + 1000):
+            total_blocks = max(1, part_sectors // spb)
 
         free_block_ranges: List[Tuple[int, int]] = []
 
-        # Tentative 1 : Extraction chirurgicale via le Space Manager (Spaceman)
-        try:
-            sm_oid = getattr(sb.object, "nx_spaceman_oid", 0)
-            sm_paddr = sb.omap.lookup(sm_oid, sb.xid) if (sm_oid and hasattr(sb, "omap")) else 0
-            if sm_paddr and sm_paddr < total_blocks:
-                sm_data = container._read_block(sm_paddr)
-                sm = c.c_apfs.spaceman_phys(sm_data)
-                dev = sm.sm_dev[0]
-                cab_count = getattr(dev, "sm_cab_count", 0)
-                cib_count = getattr(dev, "sm_cib_count", 0)
-                addr_offset = getattr(dev, "sm_addr_offset", 0)
+        # 1. Analyse des Checkpoint Descriptors & Data Blocks
+        desc_base = struct.unpack_from("<Q", hdr, 104)[0] if magic_offset == 32 else 0
+        data_base = struct.unpack_from("<Q", hdr, 112)[0] if magic_offset == 32 else 0
+        desc_blocks = struct.unpack_from("<I", hdr, 88)[0] if magic_offset == 32 else 0
+        data_blocks = struct.unpack_from("<I", hdr, 92)[0] if magic_offset == 32 else 0
 
-                cib_addrs: List[int] = []
-                if cab_count > 0 and addr_offset:
-                    # Lecture des Chunk-Info Address Blocks (CAB)
-                    cab_data = container._read_block(addr_offset)
-                    cab = c.c_apfs.cib_addr_block(cab_data)
-                    for ca in getattr(cab, "cab_cib_addr", []):
-                        if ca and ca < total_blocks:
-                            cib_addrs.append(ca)
-                elif (cib_count > 0 or cab_count == 0) and addr_offset and addr_offset < total_blocks:
-                    cib_addrs.append(addr_offset)
+        # Tentative Spaceman : Balayage des blocs de données de checkpoint pour repérer le bloc Spaceman
+        # (type 0x80000005 ou 0x00000005)
+        spaceman_block = None
+        search_blocks = min(data_blocks & 0x7FFFFFFF, 1024) if data_blocks else 64
+        for b_i in range(search_blocks):
+            blk_num = data_base + b_i
+            if blk_num >= total_blocks:
+                break
+            blk_data = reader.read_bytes(part_offset + blk_num * block_size, block_size)
+            if len(blk_data) >= 32:
+                o_type = struct.unpack_from("<I", blk_data, 24)[0]
+                if (o_type & 0x0000FFFF) == 0x0005:
+                    spaceman_block = blk_data
+                    break
 
-                for cib_paddr in cib_addrs:
-                    try:
-                        cib_data = container._read_block(cib_paddr)
-                        cib = c.c_apfs.chunk_info_block(cib_data)
-                        for ci in getattr(cib, "cib_chunk_info", []):
-                            ci_addr = getattr(ci, "ci_addr", 0)
-                            ci_blocks = getattr(ci, "ci_block_count", 0)
-                            ci_free = getattr(ci, "ci_free_count", 0)
-                            ci_bm_addr = getattr(ci, "ci_bitmap_addr", 0)
+        if spaceman_block and len(spaceman_block) >= 140:
+            try:
+                # Structure spaceman_phys :
+                # sm_dev[0] commence à l'offset 48 :
+                # offset 48: sm_block_count (8)
+                # offset 56: sm_chunk_count (8)
+                # offset 64: sm_cib_count (4)
+                # offset 68: sm_cab_count (4)
+                # offset 72: sm_free_count (8)
+                # offset 80: sm_addr_offset (4)
+                dev_cib_count = struct.unpack_from("<I", spaceman_block, 64)[0]
+                dev_cab_count = struct.unpack_from("<I", spaceman_block, 68)[0]
+                dev_addr_offset = struct.unpack_from("<I", spaceman_block, 80)[0]
 
-                            if ci_blocks == 0 or ci_addr >= total_blocks:
-                                continue
+                cib_paddrs: List[int] = []
+                if dev_cab_count > 0 and 0 < dev_addr_offset < total_blocks:
+                    # Lecture CAB
+                    cab_data = reader.read_bytes(part_offset + dev_addr_offset * block_size, block_size)
+                    if len(cab_data) >= 40:
+                        cab_cib_count = struct.unpack_from("<I", cab_data, 36)[0]
+                        cib_count_valid = min(cab_cib_count, (len(cab_data) - 40) // 8, 512)
+                        for c_i in range(cib_count_valid):
+                            paddr = struct.unpack_from("<Q", cab_data, 40 + c_i * 8)[0]
+                            if 0 < paddr < total_blocks:
+                                cib_paddrs.append(paddr)
+                elif dev_cib_count > 0 and 0 < dev_addr_offset < total_blocks:
+                    cib_paddrs.append(dev_addr_offset)
 
-                            if ci_free == ci_blocks:
-                                free_block_ranges.append((ci_addr, ci_addr + ci_blocks - 1))
-                            elif ci_free > 0 and ci_bm_addr and ci_bm_addr < total_blocks:
-                                bm_data = container._read_block(ci_bm_addr)
-                                in_free = False
-                                free_start = 0
-                                for b_idx in range(ci_blocks):
-                                    byte_i = b_idx >> 3
-                                    bit_i = b_idx & 7
-                                    is_alloc = ((bm_data[byte_i] >> bit_i) & 1) if byte_i < len(bm_data) else 0
-                                    if not is_alloc:
-                                        if not in_free:
-                                            in_free = True
-                                            free_start = b_idx
-                                    else:
-                                        if in_free:
-                                            in_free = False
-                                            free_block_ranges.append((ci_addr + free_start, ci_addr + b_idx - 1))
-                                if in_free:
-                                    free_block_ranges.append((ci_addr + free_start, ci_addr + ci_blocks - 1))
-                    except Exception:
+                for cib_paddr in cib_paddrs:
+                    cib_data = reader.read_bytes(part_offset + cib_paddr * block_size, block_size)
+                    if len(cib_data) < 40:
                         continue
-        except Exception:
-            pass
+                    cib_ci_count = struct.unpack_from("<I", cib_data, 36)[0]
+                    ci_count_valid = min(cib_ci_count, (len(cib_data) - 40) // 32, 256)
+                    for ci_i in range(ci_count_valid):
+                        ci_off = 40 + ci_i * 32
+                        ci_xid, ci_addr, ci_blocks, ci_free, ci_bm = struct.unpack_from("<QQIIQ", cib_data, ci_off)
+                        if ci_blocks == 0 or ci_addr >= total_blocks:
+                            continue
 
-        # Tentative 2 : Déduction par inversion des extents alloués
+                        if ci_free == ci_blocks:
+                            # Chunk 100% libre
+                            free_block_ranges.append((ci_addr, ci_addr + ci_blocks - 1))
+                        elif 0 < ci_free < ci_blocks and 0 < ci_bm < total_blocks:
+                            # Lecture bitmap
+                            bm_data = reader.read_bytes(part_offset + ci_bm * block_size, block_size)
+                            in_free = False
+                            free_start = 0
+                            scan_blocks = min(ci_blocks, len(bm_data) * 8)
+                            for b_idx in range(scan_blocks):
+                                byte_i = b_idx >> 3
+                                bit_i = b_idx & 7
+                                is_alloc = (bm_data[byte_i] >> bit_i) & 1
+                                if not is_alloc:
+                                    if not in_free:
+                                        in_free = True
+                                        free_start = b_idx
+                                else:
+                                    if in_free:
+                                        in_free = False
+                                        free_block_ranges.append((ci_addr + free_start, ci_addr + b_idx - 1))
+                            if in_free:
+                                free_block_ranges.append((ci_addr + free_start, ci_addr + scan_blocks - 1))
+            except Exception:
+                pass
+
+        # 2. Fallback robuste : Inversion mathématique d'intervalles alloués
         if not free_block_ranges:
             try:
-                allocated_blocks: Set[int] = set()
-                allocated_blocks.add(0)
-                desc_base = getattr(sb.object, "nx_xp_desc_base", 0)
-                desc_blocks = getattr(sb.object, "nx_xp_desc_blocks", 0)
-                for b in range(desc_base, desc_base + desc_blocks):
-                    allocated_blocks.add(b)
-                data_base = getattr(sb.object, "nx_xp_data_base", 0)
-                data_blocks = getattr(sb.object, "nx_xp_data_blocks", 0)
-                for b in range(data_base, data_base + data_blocks):
-                    allocated_blocks.add(b)
+                allocated_intervals: List[Tuple[int, int]] = []
+                # Superblock
+                allocated_intervals.append((0, 0))
+                # Checkpoints
+                if desc_blocks:
+                    allocated_intervals.append((desc_base, desc_base + (desc_blocks & 0x7FFFFFFF) - 1))
+                if data_blocks:
+                    allocated_intervals.append((data_base, data_base + (data_blocks & 0x7FFFFFFF) - 1))
 
-                for vol in container.volumes:
+                # Extents alloués des volumes via dissect si disponible
+                try:
+                    import dissect.apfs as apfs
+                    from core.crypto_engine import PartitionStream
+                    stream = PartitionStream(reader, part_offset, part_sectors * reader.sector_size)
+                    container = None
                     try:
-                        if hasattr(vol, "fext_tree") and vol.fext_tree:
-                            for _, key, val in vol.fext_tree.records():
-                                try:
-                                    phys_block = getattr(val, "phys_block_num", 0) or getattr(val, "paddr", 0)
-                                    length = getattr(val, "length", 0) or getattr(val, "block_count", 0)
-                                    for b in range(phys_block, phys_block + length):
-                                        if b < total_blocks:
-                                            allocated_blocks.add(b)
-                                except Exception:
-                                    pass
+                        container = apfs.APFS(stream)
                     except Exception:
                         pass
+                    if container:
+                        for vol in getattr(container, "volumes", []):
+                            if hasattr(vol, "fext_tree") and vol.fext_tree:
+                                for _, key, val in vol.fext_tree.records():
+                                    paddr = getattr(val, "phys_block_num", 0) or getattr(val, "paddr", 0)
+                                    length = getattr(val, "length", 0) or getattr(val, "block_count", 0)
+                                    if paddr and length and paddr < total_blocks:
+                                        allocated_intervals.append((paddr, min(total_blocks - 1, paddr + length - 1)))
+                except Exception:
+                    pass
 
-                if len(allocated_blocks) > 1:
-                    in_free = False
-                    free_start = 0
-                    for b in range(total_blocks):
-                        if b not in allocated_blocks:
-                            if not in_free:
-                                in_free = True
-                                free_start = b
-                        else:
-                            if in_free:
-                                in_free = False
-                                free_block_ranges.append((free_start, b - 1))
-                    if in_free:
-                        free_block_ranges.append((free_start, total_blocks - 1))
+                # Fusion et inversion d'intervalles (instantané et sans empreinte mémoire)
+                merged_alloc = merge_lba_ranges(allocated_intervals)
+                curr = 0
+                for a_s, a_e in merged_alloc:
+                    if a_s > curr:
+                        free_block_ranges.append((curr, a_s - 1))
+                    curr = max(curr, a_e + 1)
+                if curr < total_blocks:
+                    free_block_ranges.append((curr, total_blocks - 1))
             except Exception:
                 pass
 
