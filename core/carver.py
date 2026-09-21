@@ -768,6 +768,7 @@ class SmartCarver:
         end_lba: Optional[int] = None,
         sector_alignment: int = 512,
         enabled_categories: Optional[List[str]] = None,
+        auto_unaligned_fallback: bool = True,
     ):
         self.reader = reader
         self.sector_size = reader.sector_size
@@ -775,6 +776,7 @@ class SmartCarver:
         self.end_lba = min(reader.total_sectors - 1, end_lba) if end_lba is not None else reader.total_sectors - 1
         self.sector_alignment = sector_alignment
         self.enabled_categories = enabled_categories or ["Images", "Databases", "Documents", "Logs", "Registry", "Archives"]
+        self.auto_unaligned_fallback = auto_unaligned_fallback
 
         self.carved_artefacts: List[CarvedArtefact] = []
         self._is_cancelled = False
@@ -921,6 +923,16 @@ class SmartCarver:
                     artefact_callback(extra_art)
         except Exception:
             pass
+
+        # Si aucun artefact n'a été trouvé avec l'alignement sectoriel (ex: dump brut décalé non-aligné comme graphic-shifted)
+        # et que le scan n'a pas été annulé, bascule automatique sur balayage non-aligné (1 octet)
+        if len(self.carved_artefacts) == 0 and self.sector_alignment > 1 and self.auto_unaligned_fallback and not self._is_cancelled:
+            old_alignment = self.sector_alignment
+            self.sector_alignment = 1
+            try:
+                return self.scan(progress_callback=progress_callback, artefact_callback=artefact_callback)
+            finally:
+                self.sector_alignment = old_alignment
 
         return self.carved_artefacts
 

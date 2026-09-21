@@ -159,8 +159,10 @@ class CarverDialog(QDialog):
         row1.addSpacing(15)
         row1.addWidget(QLabel(f"<b>{t('carver_alignment_label')}</b>"))
         self.combo_align = QComboBox()
-        self.combo_align.addItem("512 octets (Secteurs standard)", 512)
-        self.combo_align.addItem("4 096 octets (Clusters standard)", 4096)
+        is_fr = get_lang() == "fr"
+        self.combo_align.addItem("512 octets (Secteurs standard - Recommandé)" if is_fr else "512 bytes (Standard sectors - Recommended)", 512)
+        self.combo_align.addItem("1 octet (Exhaustif / Non aligné / Fichiers décalés)" if is_fr else "1 byte (Exhaustive / Unaligned / Shifted files)", 1)
+        self.combo_align.addItem("4 096 octets (Clusters standard)" if is_fr else "4,096 bytes (Standard clusters)", 4096)
         self.combo_align.setStyleSheet("background: #222530; color: #fff; padding: 4px; border: 1px solid #444; border-radius: 3px;")
         row1.addWidget(self.combo_align)
 
@@ -444,6 +446,7 @@ class CarverDialog(QDialog):
             end_lba=end_lba,
             sector_alignment=alignment,
             enabled_categories=categories,
+            auto_unaligned_fallback=True,
         )
 
         self.worker = CarverWorker(self.carver)

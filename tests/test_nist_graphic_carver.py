@@ -6,10 +6,13 @@ ainsi que le dé-tressage mathématique (BraidResolver).
 
 import io
 import os
+import sys
 import struct
 import zlib
 import pytest
 from PIL import Image
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.carver import (
     SmartCarver,
@@ -245,3 +248,24 @@ def test_is_filler_sector():
 
     noise = os.urandom(512)
     assert is_filler_sector(noise) is False
+
+
+def test_smart_carver_auto_unaligned_fallback():
+    """Vérifie que SmartCarver bascule automatiquement sur un pas de 1 octet si les fichiers sont décalés."""
+    # Créer un BMP déplacé à l'offset 17 (non aligné sur 512)
+    img = Image.new("RGB", (64, 64), color="red")
+    out = io.BytesIO()
+    img.save(out, format="BMP")
+    bmp_data = out.getvalue()
+
+    shifted_disk = b"\x00" * 17 + bmp_data + b"\x00" * 500
+    reader = MockBytesReader(shifted_disk)
+
+    # Initialisation standard avec sector_alignment=512 et auto_unaligned_fallback=True
+    carver = SmartCarver(reader, sector_alignment=512, auto_unaligned_fallback=True)
+    arts = carver.scan()
+
+    assert len(arts) >= 1
+    art = arts[0]
+    assert art.start_offset == 17
+    assert art.file_type == "BMP"
