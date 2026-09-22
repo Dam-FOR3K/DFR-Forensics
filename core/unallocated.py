@@ -251,40 +251,54 @@ def extract_unallocated_exfat(reader: ForensicImageReader, part_offset: int, par
 
 
 def extract_unallocated_qnx(reader: ForensicImageReader, part_offset: int, part_sectors: int) -> List[Tuple[int, int]]:
-    """Extrait les blocs libres QNX4 / QNX6."""
+    """Extrait les blocs libres QNX4 / QNX6 via le bitmap d'allocation."""
     try:
-        from core.qnx_reader import QNXReader
+        from core.crypto_engine import PartitionStream
+        part_size = part_sectors * reader.sector_size
         part_lba = part_offset // reader.sector_size
-        qnx = QNXReader(reader, partition_start_lba=part_lba, partition_sectors=part_sectors)
-        if not qnx.is_valid_qnx:
-            return []
 
-        free_ranges: List[Tuple[int, int]] = []
-        if qnx.fs_version == 6:
-            sb = qnx.superblocks[0] if qnx.superblocks else None
-            if sb and sb.get("block_size"):
-                bs = sb["block_size"]
-                spb = max(1, bs // 512)
-                allocated_blocks: Set[int] = set()
-                for f in qnx.all_files:
-                    if not f.is_deleted:
-                        for b in f.blocks:
-                            allocated_blocks.add(b)
-                total_blocks = sb.get("num_blocks", min(part_sectors // spb, 500000))
-                in_free = False
-                free_start = 0
-                for b in range(total_blocks):
-                    if b not in allocated_blocks:
-                        if not in_free:
-                            in_free = True
-                            free_start = b
-                    else:
-                        if in_free:
-                            in_free = False
-                            free_ranges.append((part_lba + free_start * spb, part_lba + b * spb - 1))
-                if in_free:
-                    free_ranges.append((part_lba + free_start * spb, part_lba + total_blocks * spb - 1))
-        return merge_lba_ranges(free_ranges)
+        try:
+            import dissect.qnxfs as qnxfs
+            import dissect.qnxfs.qnx6 as qnx6
+            from dissect.util.stream import RunlistStream
+
+            stream = PartitionStream(reader, part_offset, part_size)
+            if qnxfs.is_qnxfs(stream):
+                stream.seek(0)
+                fs = qnxfs.QNXFS(stream)
+                if isinstance(fs, qnxfs.QNX6) and hasattr(fs, "sb") and hasattr(fs.sb, "Bitmap"):
+                    bm_node = fs.sb.Bitmap
+                    runs = list(qnx6._generate_dataruns(fs, bm_node.size, bm_node.ptr, bm_node.levels))
+                    bm_stream = RunlistStream(fs.fh, runs, bm_node.size, fs.block_size)
+                    bm = bm_stream.read()
+
+                    spb = max(1, fs.block_size // reader.sector_size)
+                    free_ranges: List[Tuple[int, int]] = []
+                    in_free = False
+                    free_start = 0
+                    for b in range(fs.num_blocks):
+                        byte_idx = b // 8
+                        bit_idx = b % 8
+                        is_alloc = ((bm[byte_idx] >> bit_idx) & 1) if byte_idx < len(bm) else 0
+                        if not is_alloc:
+                            if not in_free:
+                                in_free = True
+                                free_start = b
+                        else:
+                            if in_free:
+                                in_free = False
+                                s_lba = part_lba + free_start * spb
+                                e_lba = min(part_lba + part_sectors - 1, part_lba + b * spb - 1)
+                                free_ranges.append((s_lba, e_lba))
+                    if in_free:
+                        s_lba = part_lba + free_start * spb
+                        e_lba = min(part_lba + part_sectors - 1, part_lba + fs.num_blocks * spb - 1)
+                        free_ranges.append((s_lba, e_lba))
+                    return merge_lba_ranges(free_ranges)
+        except Exception:
+            pass
+
+        return []
     except Exception:
         return []
 

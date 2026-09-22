@@ -2,7 +2,7 @@
 ### *Disk & File Resurrection*
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version: v2.7.1](https://img.shields.io/badge/Version-v2.7.1-blue.svg)](https://github.com/Dam-FOR3K/DFR-Forensics)
+[![Version: v2.7.2](https://img.shields.io/badge/Version-v2.7.2-blue.svg)](https://github.com/Dam-FOR3K/DFR-Forensics)
 [![Author: Dam--FOR3K](https://img.shields.io/badge/Author-Dam--FOR3K-orange.svg)](https://github.com/Dam-FOR3K)
 [![Python: 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![GUI: PySide6](https://img.shields.io/badge/GUI-PySide6%20%2F%20Qt6-brightgreen.svg)](https://wiki.qt.io/Qt_for_Python)
@@ -199,5 +199,5 @@ The graphical user interface supports **English** and **Français** out of the b
 
 ## 📄 License & Author
 * **Author**: Dam-FOR3K
-* **Version**: v2.7.1
+* **Version**: v2.7.2
 * **License**: MIT License. See [LICENSE](LICENSE) for details.

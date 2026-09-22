@@ -395,18 +395,26 @@ class QNXReader:
 
             for child in entries:
                 try:
-                    c_name = getattr(child, "name", str(child))
-                    c_is_dir = child.is_dir() if callable(getattr(child, "is_dir", None)) else False
-                    c_size = getattr(child, "size", 0) if not c_is_dir else 0
-                    c_mtime = getattr(child, "mtime", None)
+                    if isinstance(child, tuple) and len(child) == 2:
+                        c_name, c_node = child
+                    else:
+                        c_name = getattr(child, "name", str(child))
+                        c_node = child
+
+                    if c_name in (".", ".."):
+                        continue
+
+                    c_is_dir = c_node.is_dir() if callable(getattr(c_node, "is_dir", None)) else False
+                    c_size = getattr(c_node, "size", 0) if not c_is_dir else 0
+                    c_mtime = getattr(c_node, "mtime", None)
                     c_path = f"{current_path.rstrip('/')}/{c_name}"
 
-                    file_entry = QNXFileEntry(name=c_name, path=c_path, is_dir=c_is_dir, size=c_size, mtime=c_mtime, node=child)
+                    file_entry = QNXFileEntry(name=c_name, path=c_path, is_dir=c_is_dir, size=c_size, mtime=c_mtime, node=c_node)
                     parent_entry.children.append(file_entry)
                     self.all_entries.append(file_entry)
 
                     if c_is_dir:
-                        self._traverse_dissect(child, file_entry, c_path, max_depth - 1)
+                        self._traverse_dissect(c_node, file_entry, c_path, max_depth - 1)
                 except Exception:
                     continue
         except Exception:
