@@ -44,6 +44,16 @@ KNOWN_SIGNATURES = [
     # Systèmes Linux Embarqués / IoT
     (0, b"hsqs", "SquashFS Filesystem"),
     (0, b"sqsh", "SquashFS Filesystem (Big-Endian)"),
+    (0, b"shsq", "SquashFS Filesystem (v3 LE)"),
+    (0, b"qshs", "SquashFS Filesystem (v3 BE)"),
+    (0, b"\x28\xcd\x3d\x45", "CramFS Filesystem (LE)"),
+    (0, b"\x45\x3d\xcd\x28", "CramFS Filesystem (BE)"),
+    (0, b"-rom1fs-", "RomFS Filesystem"),
+    (0, b"\x19\x85", "JFFS2 Filesystem"),
+    (0, b"HDR0", "Broadcom TRX Firmware Container"),
+    (0, b"\x27\x05\x19\x56", "U-Boot uImage Container"),
+    (0, b"\xd0\x0d\xfe\xed", "U-Boot FIT Image Container"),
+    (0, b"ANDROID!", "Android Boot Image"),
     (0, b"070701", "CPIO / Initramfs Archive"),
     (0, b"070702", "CPIO / Initramfs Archive (CRC)"),
     (0, b"UBI#", "UBI Flash Container"),
@@ -136,10 +146,24 @@ def detect_all_filesystems(sample_data: bytes) -> List[str]:
         if sample_data[1024:1026] in (b"H+", b"HX"):
             detected.append("HFS+")
 
-    # SquashFS (offset 0, magic 'hsqs' ou 'sqsh')
+    # SquashFS & Formats IoT Embarqués
     if len(sample_data) >= 4:
-        if sample_data[:4] in (b"hsqs", b"sqsh"):
+        if sample_data[:4] in (b"hsqs", b"sqsh", b"shsq", b"qshs"):
             detected.append("SquashFS")
+        elif sample_data[:4] in (b"\x28\xcd\x3d\x45", b"\x45\x3d\xcd\x28"):
+            detected.append("CramFS")
+        elif sample_data[:4] == b"HDR0":
+            detected.append("TRX Container")
+        elif sample_data[:4] == b"\x27\x05\x19\x56":
+            detected.append("uImage")
+        elif sample_data[:4] == b"\xd0\x0d\xfe\xed":
+            detected.append("FIT Image")
+        elif sample_data[:8] == b"ANDROID!":
+            detected.append("Android Boot")
+        elif sample_data[:8] == b"-rom1fs-":
+            detected.append("RomFS")
+        elif sample_data[:2] in (b"\x19\x85", b"\x85\x19"):
+            detected.append("JFFS2")
         elif sample_data[:6] in (b"070701", b"070702"):
             detected.append("CPIO")
         elif sample_data[:4] == b"UBI#":
@@ -557,6 +581,14 @@ class DiskScanner:
                     except Exception:
                         pass
 
+                # 6c. Détection de firmwares embarqués & conteneurs IoT (TRX, U-Boot, SquashFS, CramFS, JFFS2, etc.)
+                if not diag.partitions and self.reader.total_size_bytes > 0:
+                    fw_parts = self._scan_embedded_firmware()
+                    if fw_parts:
+                        diag.is_standalone_volume = True
+                        diag.partitions = fw_parts
+                        diag.status_summary = f"Firmware Embarqué / Image IoT identifiée ({len(fw_parts)} composants cartographiés)"
+
         # 7. Profilage d'Attaque (Wiper / Ransomware)
         from core.synthesizer import WiperProfiler
         diag.wiper_profile = WiperProfiler.profile_attack(
@@ -626,3 +658,177 @@ class DiskScanner:
                 block_bytes = 8 * 1024 * 1024
 
         return self.total_sectors
+
+    def _scan_embedded_firmware(self) -> List[GPTPartitionEntry]:
+        """Détecte et cartographie les firmwares IoT, conteneurs embarqués et systèmes de fichiers Flash."""
+        partitions: List[GPTPartitionEntry] = []
+        scan_len = min(self.reader.total_size_bytes, 32 * 1024 * 1024)
+        buf = self.reader.read_bytes(0, scan_len)
+        if not buf:
+            return partitions
+
+        # 1. Conteneur Broadcom TRX (ex: Routeurs Netgear, Linksys, Asus, OpenWrt, DVRF)
+        trx_offset = -1
+        for candidate in [0, 32, 512, 1024, 2048]:
+            if candidate + 28 <= len(buf) and buf[candidate : candidate + 4] == b"HDR0":
+                trx_offset = candidate
+                break
+
+        if trx_offset != -1:
+            try:
+                trx_hdr = buf[trx_offset : trx_offset + 28]
+                magic, length, crc32, flags, ver, off0, off1, off2 = struct.unpack("<4sIIHHIII", trx_hdr)
+                total_fw_len = min(self.reader.total_size_bytes - trx_offset, length)
+
+                # En-tête constructeur précédant TRX (ex: Sercomm PID '1550')
+                if trx_offset > 0:
+                    ent_hdr = GPTPartitionEntry()
+                    ent_hdr.name = "En-tête Constructeur (Sercomm / Netgear PID)"
+                    ent_hdr.detected_fs = "Sercomm Firmware Header"
+                    ent_hdr.first_lba = 0
+                    ent_hdr.last_lba = max(0, (trx_offset - 1) // self.sector_size)
+                    ent_hdr.type_guid = "FIRMWARE-HEADER"
+                    partitions.append(ent_hdr)
+
+                # Partition Noyau Linux
+                if off0 > 0 and off0 < total_fw_len:
+                    k_start = trx_offset + off0
+                    k_end = trx_offset + (off1 if (off1 and off1 > off0) else total_fw_len)
+                    ent_k = GPTPartitionEntry()
+                    is_gzip = buf[k_start : k_start + 2] == b"\x1f\x8b"
+                    ent_k.name = "Noyau Linux (GZIP zImage)" if is_gzip else "Noyau Linux (Kernel Payload)"
+                    ent_k.detected_fs = "Linux Kernel (GZIP)" if is_gzip else "Linux Kernel"
+                    ent_k.first_lba = k_start // self.sector_size
+                    ent_k.last_lba = max(ent_k.first_lba, (k_end - 1) // self.sector_size)
+                    ent_k.type_guid = "LINUX-KERNEL"
+                    partitions.append(ent_k)
+
+                # Partition RootFS (Système de fichiers racine)
+                if off1 > 0 and off1 < total_fw_len:
+                    fs_start = trx_offset + off1
+                    fs_end = trx_offset + (off2 if (off2 and off2 > off1) else total_fw_len)
+                    fs_sig = buf[fs_start : fs_start + 4]
+                    ent_fs = GPTPartitionEntry()
+                    if fs_sig in (b"shsq", b"hsqs", b"sqsh", b"qshs"):
+                        ent_fs.name = "Système de Fichiers Racine (SquashFS)"
+                        ent_fs.detected_fs = "SquashFS Filesystem"
+                    elif fs_sig in (b"\x28\xcd\x3d\x45", b"\x45\x3d\xcd\x28"):
+                        ent_fs.name = "Système de Fichiers Racine (CramFS)"
+                        ent_fs.detected_fs = "CramFS Filesystem"
+                    elif fs_sig in (b"\x19\x85", b"\x85\x19"):
+                        ent_fs.name = "Système de Fichiers Racine (JFFS2)"
+                        ent_fs.detected_fs = "JFFS2 Filesystem"
+                    elif fs_sig == b"UBI#":
+                        ent_fs.name = "Conteneur Flash UBI"
+                        ent_fs.detected_fs = "UBI Flash Container"
+                    else:
+                        ent_fs.name = "Système de Fichiers Racine (RootFS)"
+                        ent_fs.detected_fs = "Embedded Filesystem"
+                    ent_fs.first_lba = fs_start // self.sector_size
+                    ent_fs.last_lba = max(ent_fs.first_lba, (fs_end - 1) // self.sector_size)
+                    ent_fs.type_guid = "ROOTFS"
+                    partitions.append(ent_fs)
+
+                # Partition 3 optionnelle (Data / Overlay)
+                if off2 > 0 and off2 < total_fw_len:
+                    d_start = trx_offset + off2
+                    d_end = trx_offset + total_fw_len
+                    ent_d = GPTPartitionEntry()
+                    ent_d.name = "Partition Données / Overlay"
+                    ent_d.detected_fs = "Embedded Data"
+                    ent_d.first_lba = d_start // self.sector_size
+                    ent_d.last_lba = max(ent_d.first_lba, (d_end - 1) // self.sector_size)
+                    ent_d.type_guid = "DATA-OVERLAY"
+                    partitions.append(ent_d)
+
+                if partitions:
+                    return partitions
+            except Exception:
+                pass
+
+        # 2. Conteneur U-Boot uImage (ex: Caméras Dahua, Hikvision, Drones, IoT industriels, NAS)
+        uimage_pos = buf.find(b"\x27\x05\x19\x56")
+        if uimage_pos != -1 and uimage_pos + 64 <= len(buf):
+            try:
+                u_hdr = buf[uimage_pos : uimage_pos + 64]
+                (ih_magic, ih_hcrc, ih_time, ih_size, ih_load, ih_ep,
+                 ih_dcrc, ih_os, ih_arch, ih_type, ih_comp) = struct.unpack(">IIIIIIIBBBB", u_hdr[:32])
+                ih_name = u_hdr[32:64].split(b"\x00")[0].decode("utf-8", errors="ignore").strip()
+
+                comp_names = {0: "Non compressé", 1: "GZIP", 2: "BZIP2", 3: "LZMA", 4: "LZO", 5: "LZ4", 6: "ZSTD"}
+                type_names = {1: "Standalone", 2: "Noyau Linux", 3: "RAMDisk", 4: "Multi-Fichier", 5: "Firmware", 6: "Script", 7: "Filesystem"}
+
+                ent_u = GPTPartitionEntry()
+                ent_u.name = f"U-Boot uImage : {ih_name or type_names.get(ih_type, 'Payload')}"
+                ent_u.detected_fs = f"uImage ({comp_names.get(ih_comp, 'Raw')})"
+                ent_u.first_lba = uimage_pos // self.sector_size
+                u_end = uimage_pos + 64 + ih_size
+                ent_u.last_lba = max(ent_u.first_lba, (u_end - 1) // self.sector_size)
+                ent_u.type_guid = "UIMAGE-CONTAINER"
+                partitions.append(ent_u)
+            except Exception:
+                pass
+
+        # 3. Conteneur Android Boot Image
+        android_pos = buf.find(b"ANDROID!")
+        if android_pos != -1 and android_pos + 64 <= len(buf):
+            try:
+                (k_size, k_addr, r_size, r_addr, s_size, s_addr) = struct.unpack("<IIIIII", buf[android_pos + 8 : android_pos + 32])
+                ent_a = GPTPartitionEntry()
+                ent_a.name = "Android Boot / Recovery Image"
+                ent_a.detected_fs = "Android Boot Image"
+                ent_a.first_lba = android_pos // self.sector_size
+                a_len = 2048 + k_size + r_size + s_size
+                ent_a.last_lba = max(ent_a.first_lba, (android_pos + a_len - 1) // self.sector_size)
+                ent_a.type_guid = "ANDROID-BOOT"
+                partitions.append(ent_a)
+            except Exception:
+                pass
+
+        # 4. Balayage multi-signatures des systèmes de fichiers embarqués dans l'image
+        known_starts = {p.first_lba * self.sector_size for p in partitions}
+        fs_signatures = [
+            (b"hsqs", "SquashFS Filesystem", "Système de Fichiers SquashFS (v4 LE)"),
+            (b"sqsh", "SquashFS Filesystem (Big-Endian)", "Système de Fichiers SquashFS (v4 BE)"),
+            (b"shsq", "SquashFS Filesystem", "Système de Fichiers Racine (SquashFS v3 LE)"),
+            (b"qshs", "SquashFS Filesystem (Big-Endian)", "Système de Fichiers Racine (SquashFS v3 BE)"),
+            (b"\x28\xcd\x3d\x45", "CramFS Filesystem (LE)", "Système de Fichiers CramFS"),
+            (b"\x45\x3d\xcd\x28", "CramFS Filesystem (BE)", "Système de Fichiers CramFS"),
+            (b"-rom1fs-", "RomFS Filesystem", "Système de Fichiers RomFS"),
+            (b"UBI#", "UBI Flash Container", "Conteneur Flash UBI"),
+            (b"070701", "CPIO / Initramfs Archive", "Archive Initramfs CPIO"),
+        ]
+
+        for sig, fs_type, p_title in fs_signatures:
+            pos = 0
+            while pos < len(buf) - len(sig):
+                found_pos = buf.find(sig, pos)
+                if found_pos == -1:
+                    break
+
+                if found_pos not in known_starts:
+                    est_size = 0
+                    if sig in (b"hsqs", b"sqsh", b"shsq", b"qshs") and found_pos + 96 <= len(buf):
+                        try:
+                            if sig in (b"shsq", b"qshs"):
+                                est_size = struct.unpack("<I" if sig == b"shsq" else ">I", buf[found_pos + 8 : found_pos + 12])[0]
+                            else:
+                                est_size = struct.unpack("<Q" if sig == b"hsqs" else ">Q", buf[found_pos + 40 : found_pos + 48])[0]
+                        except Exception:
+                            est_size = 0
+
+                    if est_size <= 0 or found_pos + est_size > self.reader.total_size_bytes:
+                        est_size = min(self.reader.total_size_bytes - found_pos, 8 * 1024 * 1024)
+
+                    ent_fs = GPTPartitionEntry()
+                    ent_fs.name = f"{p_title} (Offset 0x{found_pos:X})"
+                    ent_fs.detected_fs = fs_type
+                    ent_fs.first_lba = found_pos // self.sector_size
+                    ent_fs.last_lba = max(ent_fs.first_lba, (found_pos + est_size - 1) // self.sector_size)
+                    ent_fs.type_guid = "EMBEDDED-FS"
+                    partitions.append(ent_fs)
+                    known_starts.add(found_pos)
+
+                pos = found_pos + len(sig)
+
+        return partitions

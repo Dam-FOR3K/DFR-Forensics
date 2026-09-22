@@ -144,27 +144,86 @@ class HexViewer(QWidget):
         self.combo_jump.blockSignals(True)
         self.combo_jump.clear()
         self.combo_jump.addItem(t("hex_jump_default"), None)
-        self.combo_jump.addItem(t("hex_jump_mbr"), 0)
-        self.combo_jump.addItem(t("hex_jump_primary_hdr"), 1)
-        self.combo_jump.addItem(t("hex_jump_primary_tbl"), 2)
+
+        if not self.reader:
+            self.combo_jump.blockSignals(False)
+            return
+
+        is_fr = get_lang() == "fr"
 
         if self.diag:
+            has_embedded = any("Firmware" in (p.name or "") or "Noyau" in (p.name or "") or "SquashFS" in (p.detected_fs or "") for p in self.diag.partitions)
+            is_gpt = self.diag.primary_gpt_present or self.diag.backup_gpt_present
+
+            # A. Cas GPT (disque moderne partitionné en GPT) ou disque vierge/générique
+            if is_gpt or (not has_embedded and not self.diag.is_standalone_volume and not self.diag.mbr_present and not self.diag.partitions):
+                self.combo_jump.addItem(t("hex_jump_mbr"), 0)
+                if self.diag.primary_gpt_present or not self.diag.partitions:
+                    self.combo_jump.addItem(t("hex_jump_primary_hdr"), 1)
+                    p_tbl = 2
+                    if self.diag.primary_gpt_header:
+                        p_tbl = self.diag.primary_gpt_header.partition_entries_lba
+                    self.combo_jump.addItem(t("hex_jump_primary_tbl") if p_tbl == 2 else (f"📑 Table GPT Primaire (LBA {p_tbl:,})" if is_fr else f"📑 Primary GPT Table (LBA {p_tbl:,})"), p_tbl)
+
+            # B. Cas MBR classique (disque partitionné en DOS MBR sans GPT)
+            elif self.diag.mbr_present and not self.diag.is_standalone_volume and not has_embedded:
+                self.combo_jump.addItem("🏁 Secteur d'Amorçage MBR (LBA 0)" if is_fr else "🏁 MBR Boot Sector (LBA 0)", 0)
+
+            # C. Partitions, Composants IoT & Systèmes de fichiers analysés
+            for idx, p in enumerate(self.diag.partitions, 1):
+                fs_label = p.detected_fs or p.type_name or ("Partition" if is_fr else "Partition")
+                p_name = p.name or f"Partition {idx}"
+                icon = "📁"
+                if any(k in fs_label or k in p_name for k in ["Kernel", "Noyau"]):
+                    icon = "🐧"
+                elif any(k in fs_label or k in p_name for k in ["SquashFS", "RootFS", "CramFS", "JFFS2"]):
+                    icon = "📦"
+                elif any(k in fs_label or k in p_name for k in ["TRX", "Sercomm", "uImage", "Firmware", "Boot"]):
+                    icon = "⚡"
+                elif any(k in fs_label or k in p_name for k in ["BitLocker", "LUKS", "Chiffr"]):
+                    icon = "🔒"
+                elif "APFS" in fs_label:
+                    icon = "🍏"
+
+                label = f"{icon} Part {idx} : {p_name} (LBA {p.first_lba:,}) [{fs_label}]"
+                self.combo_jump.addItem(label, p.first_lba)
+
+                # Sous-structures APFS
+                if hasattr(p, "sub_volumes") and p.sub_volumes:
+                    for sv in p.sub_volumes:
+                        sv_name = sv.get("name") or "Volume"
+                        self.combo_jump.addItem(f"   ↳ 🍏 Volume APFS : {sv_name} (LBA {p.first_lba:,})", p.first_lba)
+
+                # Structures clés de systèmes de fichiers conventionnels
+                if "NTFS" in fs_label.upper():
+                    if p.last_lba > p.first_lba:
+                        self.combo_jump.addItem(f"   ↳ 🪟 NTFS Backup Boot Sector (LBA {p.last_lba:,})", p.last_lba)
+                elif "FAT" in fs_label.upper():
+                    if p.first_lba + 6 <= p.last_lba:
+                        self.combo_jump.addItem(f"   ↳ 💾 FAT32 Backup VBR (LBA {p.first_lba + 6:,})", p.first_lba + 6)
+                elif "EXT" in fs_label.upper():
+                    sb_lba = p.first_lba + (1024 // self.reader.sector_size)
+                    self.combo_jump.addItem(f"   ↳ 🐧 Superbloc Primaire Ext (LBA {sb_lba:,})", sb_lba)
+
+            # D. Sauvegarde GPT (Backup Header & Table à la fin du disque)
+            if self.diag.backup_gpt_present and self.diag.backup_gpt_header:
+                b_hdr_lba = self.diag.backup_gpt_header.partition_entries_lba
+                last_lba = self.diag.total_sectors - 1
+                self.combo_jump.addItem(f"📑 Table GPT Backup (LBA {b_hdr_lba:,})" if is_fr else f"📑 Backup GPT Table (LBA {b_hdr_lba:,})", b_hdr_lba)
+                self.combo_jump.addItem(f"📋 En-tête GPT Backup (LBA {last_lba:,})" if is_fr else f"📋 Backup GPT Header (LBA {last_lba:,})", last_lba)
+
+            # E. Frontière d'effacement / Wipe
             if self.diag.wipe_frontier_lba and self.diag.wipe_frontier_lba > 0:
                 self.combo_jump.addItem(
                     t("hex_jump_wipe_frontier", lba=self.diag.wipe_frontier_lba),
                     self.diag.wipe_frontier_lba,
                 )
 
-            for idx, p in enumerate(self.diag.partitions, 1):
-                fs_label = p.detected_fs or p.type_name
-                label = f"📁 Part {idx} : {p.name or 'Partition'} (LBA {p.first_lba:,}) [{fs_label}]"
-                self.combo_jump.addItem(label, p.first_lba)
-
-            if self.diag.backup_gpt_present and self.diag.backup_gpt_header:
-                b_hdr_lba = self.diag.backup_gpt_header.partition_entries_lba
-                last_lba = self.diag.total_sectors - 1
-                self.combo_jump.addItem(t("hex_jump_backup_tbl", lba=b_hdr_lba), b_hdr_lba)
-                self.combo_jump.addItem(t("hex_jump_backup_hdr", lba=last_lba), last_lba)
+        # F. Repli général : premier et dernier secteur
+        if self.combo_jump.count() == 1 and self.reader.total_sectors > 0:
+            self.combo_jump.addItem("🏁 Premier Secteur (LBA 0)" if is_fr else "🏁 First Sector (LBA 0)", 0)
+            last_lba = max(0, self.reader.total_sectors - 1)
+            self.combo_jump.addItem(f"🏁 Dernier Secteur (LBA {last_lba:,})" if is_fr else f"🏁 Last Sector (LBA {last_lba:,})", last_lba)
 
         self.combo_jump.blockSignals(False)
 

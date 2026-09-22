@@ -529,7 +529,9 @@ class VirtualExplorerDialog(QDialog):
             except Exception:
                 handler = None
 
-        if handler and handler.is_encrypted:
+        is_crypto_target = any(k in (chosen_fs or "").upper() for k in ("BITLOCKER", "LUKS", "CHIFFR", "ENCRYPT"))
+
+        if handler and handler.is_encrypted and is_crypto_target:
             # Si le volume est déjà déverrouillé dans la session Windows active, auto-déverrouiller directement !
             if not handler.is_unlocked and handler.metadata.get("windows_is_unlocked"):
                 handler.unlock_with_windows_volume()
@@ -583,17 +585,20 @@ class VirtualExplorerDialog(QDialog):
             if len(boot_hdr) >= 512:
                 if boot_hdr[3:11] == b"NTFS    ":
                     boot_sig = b"NTFS"
-                    chosen_fs = "NTFS"
-                    if handler and handler.is_unlocked:
+                    if not self.active_fs_override:
+                        chosen_fs = "NTFS"
+                    if handler and handler.is_unlocked and is_crypto_target:
                         p.detected_fs = f"NTFS ({handler.crypto_type} Déverrouillé)"
                 elif boot_hdr[3:11] == b"EXFAT   ":
                     boot_sig = b"EXFAT"
-                    chosen_fs = "EXFAT"
-                    if handler and handler.is_unlocked:
+                    if not self.active_fs_override:
+                        chosen_fs = "EXFAT"
+                    if handler and handler.is_unlocked and is_crypto_target:
                         p.detected_fs = f"exFAT ({handler.crypto_type} Déverrouillé)"
                 elif boot_hdr[0x52:0x57] == b"FAT32" or boot_hdr[0x36:0x39] == b"FAT":
                     boot_sig = b"FAT"
-                    chosen_fs = "FAT"
+                    if not self.active_fs_override:
+                        chosen_fs = "FAT"
         except Exception:
             pass
 
@@ -686,7 +691,7 @@ class VirtualExplorerDialog(QDialog):
                 self.preview_text.setPlainText(f"Erreur d'analyse Flash Embarquée : {e}")
 
         # 8. Gestion NTFS (Index B-Tree haute performance & fallback NTFSReader)
-        if boot_sig == b"NTFS" or "NTFS" in chosen_fs.upper() or (handler and handler.is_unlocked and boot_sig != b"FAT"):
+        if (boot_sig == b"NTFS" and not self.active_fs_override) or "NTFS" in chosen_fs.upper() or (handler and handler.is_unlocked and is_crypto_target and boot_sig != b"FAT"):
             # A. Tentative prioritaire haute performance via dissect.ntfs (Index B-Tree instantané sans bloquer l'UI)
             try:
                 part_size = p.total_sectors * self.reader.sector_size
@@ -712,7 +717,7 @@ class VirtualExplorerDialog(QDialog):
                     self.preview_text.setPlainText(f"Erreur d'analyse NTFS : {e}")
 
         # 9. Gestion Ext2/Ext3/Ext4
-        if "EXT" in chosen_fs.upper() or (handler and handler.is_unlocked and boot_sig == b""):
+        if "EXT" in chosen_fs.upper() or (handler and handler.is_unlocked and is_crypto_target and boot_sig == b""):
             try:
                 ext = ExtReader(active_reader, partition_offset_bytes=active_offset)
                 if ext.is_valid_ext and ext.root_entry:
@@ -723,7 +728,7 @@ class VirtualExplorerDialog(QDialog):
                     self.preview_text.setPlainText(f"Erreur d'analyse Ext : {e}")
 
         # 10. Gestion exFAT
-        if "EXFAT" in chosen_fs.upper() or boot_sig == b"EXFAT":
+        if "EXFAT" in chosen_fs.upper() or (boot_sig == b"EXFAT" and not self.active_fs_override):
             try:
                 part_size = p.total_sectors * self.reader.sector_size
                 exfat = ExFATReader(active_reader, partition_offset_bytes=active_offset, partition_size_bytes=part_size)
@@ -735,7 +740,7 @@ class VirtualExplorerDialog(QDialog):
                     self.preview_text.setPlainText(f"Erreur d'analyse exFAT : {e}")
 
         # 11. Gestion FAT12 / FAT16 / FAT32 (Nominal)
-        if boot_sig == b"FAT" or "FAT" in chosen_fs.upper() or (handler and handler.is_unlocked):
+        if (boot_sig == b"FAT" and not self.active_fs_override) or "FAT" in chosen_fs.upper() or (handler and handler.is_unlocked and is_crypto_target):
             try:
                 fat = FATReader(active_reader, partition_offset_bytes=active_offset)
                 if fat.is_valid_fat and fat.root_entry:

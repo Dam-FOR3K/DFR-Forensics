@@ -87,38 +87,63 @@ class SquashFSReader:
 
         magic = hdr[:4]
         endian = "<"
-        if magic == b"hsqs":
+        if magic in (b"hsqs", b"shsq"):
             endian = "<"
-        elif magic == b"sqsh":
+        elif magic in (b"sqsh", b"qshs"):
             endian = ">"
         else:
             return
 
         self.is_valid_squashfs = True
 
-        (
-            inodes,
-            mkfs_time,
-            bsize,
-            fragments,
-            comp_id,
-            block_log,
-            flags,
-            no_ids,
-            s_maj,
-            s_min,
-            root_ref,
-            bytes_used,
-            id_table_start,
-            xattr_start,
-            inode_table_start,
-            dir_table_start,
-            frag_table_start,
-            export_table_start,
-        ) = struct.unpack(endian + "IIIIHHHHHHQQQQQQQQ", hdr[4:96])
+        if magic in (b"shsq", b"qshs"):
+            # SquashFS v3 (courant sur routeurs MIPS / OpenWrt / Broadcom)
+            try:
+                (
+                    inodes,
+                    bytes_used,
+                    uid_start,
+                    guid_start,
+                    inode_table_start,
+                    dir_table_start,
+                    s_maj,
+                    s_min,
+                    bsize,
+                    block_log,
+                    flags,
+                    no_uids,
+                    no_guids,
+                    mkfs_time,
+                ) = struct.unpack(endian + "IIIIIIHHHHBBBI", hdr[4:48])
+            except Exception:
+                inodes, mkfs_time, bsize, comp_id = 0, 0, 65536, 2
+                dir_table_start, bytes_used = 0, self.size
+            self.compression_type = "LZMA"
+        else:
+            # SquashFS v4 standard
+            (
+                inodes,
+                mkfs_time,
+                bsize,
+                fragments,
+                comp_id,
+                block_log,
+                flags,
+                no_ids,
+                s_maj,
+                s_min,
+                root_ref,
+                bytes_used,
+                id_table_start,
+                xattr_start,
+                inode_table_start,
+                dir_table_start,
+                frag_table_start,
+                export_table_start,
+            ) = struct.unpack(endian + "IIIIHHHHHHQQQQQQQQ", hdr[4:96])
+            self.compression_type = self.COMP_NAMES.get(comp_id, f"Code {comp_id}")
 
         self.block_size = bsize if bsize > 0 else 131072
-        self.compression_type = self.COMP_NAMES.get(comp_id, f"Code {comp_id}")
         mtime_obj = datetime.fromtimestamp(mkfs_time, tz=timezone.utc) if mkfs_time > 0 else None
 
         # Création de la racine
