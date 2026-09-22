@@ -511,7 +511,8 @@ class VirtualExplorerDialog(QDialog):
             self.banner_multifs.setVisible(False)
 
         chosen_fs = self.active_fs_override or (coexisting[0] if coexisting else "") or (p.detected_fs or "").upper()
-        part_offset = p.first_lba * self.reader.sector_size
+        part_offset = getattr(p, "byte_offset", None) if getattr(p, "byte_offset", None) is not None else (p.first_lba * self.reader.sector_size)
+        part_size = getattr(p, "byte_size", None) if getattr(p, "byte_size", None) is not None else (p.total_sectors * self.reader.sector_size)
 
         # Gestion des conteneurs chiffrés (LUKS / BitLocker)
         part_key = p.first_lba
@@ -859,7 +860,27 @@ class VirtualExplorerDialog(QDialog):
             pass
 
 
-        # 6. Autre FS
+        # 6. Composant Binaire Embarqué (En-tête, Noyau Linux sans filesystem) ou Autre FS
+        is_fw_comp = any(k in (p.name or "").lower() or k in (chosen_fs or "").lower() for k in ["kernel", "noyau", "en-tête", "sercomm", "trx", "uimage", "firmware", "boot"])
+        if is_fw_comp:
+            root = QTreeWidgetItem(self.tree, [f"/ ({p.name or 'Composant Firmware'})", "", chosen_fs or "Binaire Embarqué", "", ""])
+            self.all_tree_items.append(root)
+            raw_item = QTreeWidgetItem(root, [f"[{p.name or 'Binaire'}]", format_size(part_size), "Image Binaire Brute", "", ""])
+            self.all_tree_items.append(raw_item)
+            root.setExpanded(True)
+            self.preview_text.setPlainText(
+                f"=== COMPOSANT BINAIRE EMBARQUÉ / FIRMWARE ===\n\n"
+                f"Nom              : {p.name}\n"
+                f"Type technique   : {chosen_fs or p.type_guid}\n"
+                f"Offset début     : {part_offset:,} octets (LBA {p.first_lba:,})\n"
+                f"Taille           : {part_size:,} octets ({format_size(part_size)})\n\n"
+                f"ℹ️ Note médico-légale :\n"
+                f"Ce composant est une charge binaire brute (ex: Noyau Linux exécutable compressé ou en-tête matériel constructeur).\n"
+                f"Il ne contient pas d'arborescence de fichiers hiérarchique classique (ceux-ci résident dans la partition RootFS / SquashFS).\n\n"
+                f"💡 Vous pouvez analyser ses octets bruts dans l'onglet 'Hex Viewer' ou l'exporter pour rétro-ingénierie (IDA Pro, Ghidra, Binwalk)."
+            )
+            return
+
         root = QTreeWidgetItem(self.tree, [f"/ ({p.name or 'Partition'})", "", chosen_fs or "Système Inconnu", "", ""])
         self.all_tree_items.append(root)
         self.preview_text.setPlainText(f"Système de fichiers : {chosen_fs}\nSecteur début : LBA {p.first_lba:,}\n")

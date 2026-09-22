@@ -81,9 +81,23 @@ class SquashFSReader:
         self._parse()
 
     def _parse(self):
-        hdr = self.reader.read_bytes(self.offset, 96)
+        hdr = self.reader.read_bytes(self.offset, 4096)
         if len(hdr) < 96:
             return
+
+        # Auto-alignement si le SquashFS ne commence pas exactement à la frontière de secteur
+        shift = 0
+        if hdr[:4] not in (b"hsqs", b"sqsh", b"shsq", b"qshs"):
+            for candidate in (b"hsqs", b"sqsh", b"shsq", b"qshs"):
+                p_cand = hdr.find(candidate)
+                if p_cand != -1:
+                    shift = p_cand
+                    break
+        if shift > 0:
+            self.offset += shift
+            if self.size and self.size > shift:
+                self.size -= shift
+            hdr = hdr[shift:]
 
         magic = hdr[:4]
         endian = "<"
@@ -98,27 +112,17 @@ class SquashFSReader:
 
         if magic in (b"shsq", b"qshs"):
             # SquashFS v3 (courant sur routeurs MIPS / OpenWrt / Broadcom)
+            inodes = struct.unpack(endian + "I", hdr[4:8])[0] if len(hdr) >= 8 else 0
+            mkfs_time = 0
+            bsize = 65536
+            dir_table_start = 0
+            bytes_used = self.size
+            self.compression_type = "LZMA (Broadcom)"
             try:
-                (
-                    inodes,
-                    bytes_used,
-                    uid_start,
-                    guid_start,
-                    inode_table_start,
-                    dir_table_start,
-                    s_maj,
-                    s_min,
-                    bsize,
-                    block_log,
-                    flags,
-                    no_uids,
-                    no_guids,
-                    mkfs_time,
-                ) = struct.unpack(endian + "IIIIIIHHHHBBBI", hdr[4:48])
+                s_major, s_minor = struct.unpack(endian + "HH", hdr[28:32])
+                self.version = f"v{s_major}.{s_minor}"
             except Exception:
-                inodes, mkfs_time, bsize, comp_id = 0, 0, 65536, 2
-                dir_table_start, bytes_used = 0, self.size
-            self.compression_type = "LZMA"
+                self.version = "v3.0"
         else:
             # SquashFS v4 standard
             (
@@ -157,7 +161,25 @@ class SquashFSReader:
         self.all_entries.append(self.root_entry)
 
         # Extraction des entrées depuis la table des répertoires
-        self._scan_directory_table(endian, dir_table_start, bytes_used)
+        if dir_table_start > 0 and dir_table_start < bytes_used:
+            self._scan_directory_table(endian, dir_table_start, bytes_used)
+
+        # Si aucune entrée n'a pu être extraite (flux propriétaire LZMA Broadcom 'shsq')
+        if len(self.root_entry.children) == 0:
+            clean_comp = self.compression_type.lower().replace(" ", "_").replace("(", "").replace(")", "")
+            img_name = f"rootfs_{clean_comp}.squashfs"
+            img_entry = SquashFSFileEntry(
+                name=img_name,
+                path=f"/{img_name}",
+                is_dir=False,
+                size=self.size,
+                inode=100,
+                mtime=mtime_obj,
+                data_offset=self.offset,
+                data_length=self.size,
+            )
+            self.root_entry.children.append(img_entry)
+            self.all_entries.append(img_entry)
 
     def _decompress_chunk(self, data: bytes) -> bytes:
         """Tente de décompresser un bloc de métadonnées selon l'algorithme détecté."""

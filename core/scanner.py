@@ -688,6 +688,8 @@ class DiskScanner:
                     ent_hdr.first_lba = 0
                     ent_hdr.last_lba = max(0, (trx_offset - 1) // self.sector_size)
                     ent_hdr.type_guid = "FIRMWARE-HEADER"
+                    ent_hdr.byte_offset = 0
+                    ent_hdr.byte_size = trx_offset
                     partitions.append(ent_hdr)
 
                 # Partition Noyau Linux
@@ -701,6 +703,8 @@ class DiskScanner:
                     ent_k.first_lba = k_start // self.sector_size
                     ent_k.last_lba = max(ent_k.first_lba, (k_end - 1) // self.sector_size)
                     ent_k.type_guid = "LINUX-KERNEL"
+                    ent_k.byte_offset = k_start
+                    ent_k.byte_size = k_end - k_start
                     partitions.append(ent_k)
 
                 # Partition RootFS (Système de fichiers racine)
@@ -727,6 +731,8 @@ class DiskScanner:
                     ent_fs.first_lba = fs_start // self.sector_size
                     ent_fs.last_lba = max(ent_fs.first_lba, (fs_end - 1) // self.sector_size)
                     ent_fs.type_guid = "ROOTFS"
+                    ent_fs.byte_offset = fs_start
+                    ent_fs.byte_size = fs_end - fs_start
                     partitions.append(ent_fs)
 
                 # Partition 3 optionnelle (Data / Overlay)
@@ -739,6 +745,8 @@ class DiskScanner:
                     ent_d.first_lba = d_start // self.sector_size
                     ent_d.last_lba = max(ent_d.first_lba, (d_end - 1) // self.sector_size)
                     ent_d.type_guid = "DATA-OVERLAY"
+                    ent_d.byte_offset = d_start
+                    ent_d.byte_size = d_end - d_start
                     partitions.append(ent_d)
 
                 if partitions:
@@ -826,6 +834,8 @@ class DiskScanner:
                     ent_fs.first_lba = found_pos // self.sector_size
                     ent_fs.last_lba = max(ent_fs.first_lba, (found_pos + est_size - 1) // self.sector_size)
                     ent_fs.type_guid = "EMBEDDED-FS"
+                    ent_fs.byte_offset = found_pos
+                    ent_fs.byte_size = est_size
                     partitions.append(ent_fs)
                     known_starts.add(found_pos)
 
