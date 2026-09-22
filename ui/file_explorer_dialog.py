@@ -6,6 +6,7 @@ et d'extraire les artefacts avec intégrité médico-légale garantie.
 """
 
 import os
+import io
 import hashlib
 from typing import Optional, List, Dict, Tuple
 from PySide6.QtWidgets import (
@@ -89,6 +90,43 @@ def format_hex_dump(data: bytes, max_bytes: int = 2048) -> str:
     return "\n".join(lines)
 
 
+class ReaderStream(io.RawIOBase):
+    """Adaptateur de flux I/O pour brancher les parseurs dissect sur ForensicImageReader."""
+
+    def __init__(self, reader, offset_bytes: int, size_bytes: int):
+        self.reader = reader
+        self.offset_bytes = offset_bytes
+        self.size_bytes = size_bytes
+        self.pos = 0
+
+    def readable(self) -> bool:
+        return True
+
+    def seekable(self) -> bool:
+        return True
+
+    def tell(self) -> int:
+        return self.pos
+
+    def seek(self, offset: int, whence: int = io.SEEK_SET) -> int:
+        if whence == io.SEEK_SET:
+            self.pos = offset
+        elif whence == io.SEEK_CUR:
+            self.pos += offset
+        elif whence == io.SEEK_END:
+            self.pos = self.size_bytes + offset
+        return self.pos
+
+    def readinto(self, b) -> int:
+        if self.pos >= self.size_bytes:
+            return 0
+        to_read = min(len(b), self.size_bytes - self.pos)
+        data = self.reader.read_bytes(self.offset_bytes + self.pos, to_read)
+        b[: len(data)] = data
+        self.pos += len(data)
+        return len(data)
+
+
 class VirtualExplorerDialog(QDialog):
     """Explorateur virtuel arborescent de systèmes de fichiers avec moteur NTFS Undelete."""
 
@@ -96,6 +134,7 @@ class VirtualExplorerDialog(QDialog):
         super().__init__(parent)
         self.reader = reader
         self.diag = diag
+        self.current_dissect_ntfs = None
         self.current_ntfs: Optional[NTFSReader] = None
         self.current_fat: Optional[FATReader] = None
         self.current_exfat: Optional[ExFATReader] = None
@@ -314,7 +353,7 @@ class VirtualExplorerDialog(QDialog):
 
     def populate_partitions(self):
         self.combo_parts.clear()
-        if not self.diag.partitions:
+        if not self.diag or not getattr(self.diag, "partitions", None):
             return
 
         is_fr = get_lang() == "fr"
@@ -325,7 +364,21 @@ class VirtualExplorerDialog(QDialog):
             label = f"Partition {idx} : {vol_name} (LBA {p.first_lba:,} {to_word} {p.last_lba:,}) [{fs}]"
             self.combo_parts.addItem(label, (p, None))
 
-            # Sous-volumes APFS
+            # Sous-volumes APFS (découverte dynamique si non renseignés)
+            if not getattr(p, "sub_volumes", None) and ("APFS" in (p.detected_fs or "").upper() or "APPLE" in (p.detected_fs or "").upper()):
+                try:
+                    from core.apfs_reader import APFSReader
+                    part_offset = p.first_lba * self.reader.sector_size
+                    part_size = p.total_sectors * self.reader.sector_size
+                    apfs_probe = APFSReader(self.reader, partition_offset_bytes=part_offset, partition_size_bytes=part_size)
+                    if apfs_probe.is_valid_apfs and apfs_probe.volumes:
+                        p.sub_volumes = [
+                            {"name": v.name, "uuid": v.uuid, "is_encrypted": v.is_encrypted, "fs_type": "Volume APFS"}
+                            for v in apfs_probe.volumes
+                        ]
+                except Exception:
+                    pass
+
             if hasattr(p, "sub_volumes") and p.sub_volumes:
                 for sv in p.sub_volumes:
                     sv_name = sv.get("name") or "Volume"
@@ -632,8 +685,22 @@ class VirtualExplorerDialog(QDialog):
             except Exception as e:
                 self.preview_text.setPlainText(f"Erreur d'analyse Flash Embarquée : {e}")
 
-        # 8. Gestion NTFS Réelle (MFT + Undelete + Clichés VSS)
+        # 8. Gestion NTFS (Index B-Tree haute performance & fallback NTFSReader)
         if boot_sig == b"NTFS" or "NTFS" in chosen_fs.upper() or (handler and handler.is_unlocked and boot_sig != b"FAT"):
+            # A. Tentative prioritaire haute performance via dissect.ntfs (Index B-Tree instantané sans bloquer l'UI)
+            try:
+                part_size = p.total_sectors * self.reader.sector_size
+                stream = ReaderStream(active_reader, active_offset, part_size)
+                import dissect.ntfs
+                ntfs_dissect = dissect.ntfs.NTFS(stream)
+                if ntfs_dissect.mft and ntfs_dissect.mft.root:
+                    vss_tag = target_sub if (target_sub and target_sub.startswith("VSS:")) else None
+                    self._populate_dissect_ntfs_tree(ntfs_dissect, p, vss_snapshot=vss_tag)
+                    return
+            except Exception:
+                pass
+
+            # B. Repli sur le lecteur forensique pur-Python NTFSReader (reconstruction COW, Undelete, MFTMirr)
             try:
                 ntfs = NTFSReader(active_reader, partition_offset_bytes=active_offset)
                 if ntfs.is_valid_ntfs and ntfs.root_entry:
@@ -731,6 +798,16 @@ class VirtualExplorerDialog(QDialog):
 
         # Tester NTFS
         try:
+            part_size = p.total_sectors * self.reader.sector_size
+            stream = ReaderStream(active_reader, active_offset, part_size)
+            import dissect.ntfs
+            ntfs_dissect = dissect.ntfs.NTFS(stream)
+            if ntfs_dissect.mft and ntfs_dissect.mft.root:
+                self._populate_dissect_ntfs_tree(ntfs_dissect, p)
+                return
+        except Exception:
+            pass
+        try:
             ntfs = NTFSReader(active_reader, partition_offset_bytes=active_offset)
             if ntfs.is_valid_ntfs and ntfs.root_entry:
                 self._populate_ntfs_tree(ntfs, p)
@@ -809,6 +886,8 @@ class VirtualExplorerDialog(QDialog):
                 self._add_ext_level(item, node)
             elif fs_type == "NTFS" and node:
                 self._add_ntfs_level(item, node)
+            elif fs_type == "DISSECT_NTFS" and node:
+                self._add_dissect_ntfs_level(item, node)
         finally:
             self.tree.setUpdatesEnabled(True)
 
@@ -869,12 +948,17 @@ class VirtualExplorerDialog(QDialog):
         act_slack.setEnabled(not is_dir)
         act_slack.triggered.connect(lambda: self.inspect_file_slack(entry))
 
+        act_export_slack = menu.addAction("💾 Exporter le File Slack brut (.bin)..." if get_lang() == "fr" else "💾 Export Raw File Slack (.bin)...")
+        act_export_slack.setEnabled(not is_dir)
+        act_export_slack.triggered.connect(lambda: self.export_file_slack(entry))
+
         menu.exec(self.tree.viewport().mapToGlobal(pos))
 
-    def inspect_file_slack(self, entry):
-        """Calcule et affiche le File Slack (RAM Slack + Drive Slack) du fichier sélectionné."""
+    def _extract_slack_data(self, entry) -> tuple:
         cluster_size = 4096
-        if self.current_ntfs and hasattr(self.current_ntfs, "cluster_size"):
+        if self.current_dissect_ntfs and hasattr(self.current_dissect_ntfs, "cluster_size"):
+            cluster_size = self.current_dissect_ntfs.cluster_size
+        elif self.current_ntfs and hasattr(self.current_ntfs, "cluster_size"):
             cluster_size = self.current_ntfs.cluster_size
         elif self.current_fat and hasattr(self.current_fat, "cluster_size"):
             cluster_size = self.current_fat.cluster_size
@@ -883,28 +967,50 @@ class VirtualExplorerDialog(QDialog):
         elif self.current_ext and hasattr(self.current_ext, "block_size"):
             cluster_size = self.current_ext.block_size
 
-        file_size = getattr(entry, "size", 0)
+        try:
+            file_size = entry.size() if callable(getattr(entry, "size", None)) else getattr(entry, "size", 0)
+        except Exception:
+            file_size = 0
+
         remainder = file_size % cluster_size
         slack_size = (cluster_size - remainder) if remainder != 0 else 0
 
-        name = getattr(entry, "name", "Fichier")
+        name = getattr(entry, "name", None) or getattr(entry, "filename", "Fichier")
         slack_bytes = b""
         p, _ = self.get_current_partition_and_sub()
         part_offset = (p.first_lba * self.reader.sector_size) if p else 0
 
-        if slack_size > 0 and self.current_ntfs and isinstance(entry, NTFSFileEntry):
+        if slack_size > 0:
+            # A. Support NTFS dissect
             try:
-                if hasattr(entry, "data_runs") and entry.data_runs:
-                    last_run_lcn, last_run_count = entry.data_runs[-1]
-                    last_cluster_offset = part_offset + ((last_run_lcn + last_run_count) * cluster_size) - cluster_size
-                    read_offset = last_cluster_offset + remainder
-                    slack_bytes = self.reader.read_bytes(read_offset, slack_size)
+                import dissect.ntfs
+                if isinstance(entry, dissect.ntfs.MftRecord):
+                    runs = entry.dataruns()
+                    if runs:
+                        last_lcn, last_count = runs[-1]
+                        last_cluster_offset = part_offset + ((last_lcn + last_count) * cluster_size) - cluster_size
+                        read_offset = last_cluster_offset + remainder
+                        slack_bytes = self.reader.read_bytes(read_offset, slack_size)
             except Exception:
                 pass
 
-        if not slack_bytes and slack_size > 0:
-            slack_bytes = b"\x00" * min(slack_size, 512)
+            # B. Support NTFS pur-python
+            if not slack_bytes and self.current_ntfs and isinstance(entry, NTFSFileEntry):
+                try:
+                    if hasattr(entry, "data_runs") and entry.data_runs:
+                        last_run_lcn, last_run_count = entry.data_runs[-1]
+                        last_cluster_offset = part_offset + ((last_run_lcn + last_run_count) * cluster_size) - cluster_size
+                        read_offset = last_cluster_offset + remainder
+                        slack_bytes = self.reader.read_bytes(read_offset, slack_size)
+                except Exception:
+                    pass
 
+        return name, file_size, cluster_size, slack_size, slack_bytes
+
+    def inspect_file_slack(self, entry):
+        """Calcule et affiche le File Slack (RAM Slack + Drive Slack) du fichier sélectionné."""
+        name, file_size, cluster_size, slack_size, slack_bytes = self._extract_slack_data(entry)
+        display_bytes = slack_bytes if slack_bytes else (b"\x00" * min(slack_size, 512) if slack_size > 0 else b"")
         slack_report = (
             f"=== INSPECTION FORENSIQUE DU FILE SLACK ===\n\n"
             f"Fichier          : {name}\n"
@@ -916,9 +1022,36 @@ class VirtualExplorerDialog(QDialog):
             f" • Drive Slack : Secteurs non alloués restants dans le dernier cluster alloué au fichier\n"
             f"   (Zone critique d'investigation pouvant receler des données résiduelles effacées antérieures)\n\n"
             f"--- APERÇU HEXADÉCIMAL DU FILE SLACK ---\n\n"
-            f"{format_hex_dump(slack_bytes) if slack_bytes else '[Aucun slack détecté - le fichier remplit exactement la taille de cluster]'}"
+            f"{format_hex_dump(display_bytes) if display_bytes else '[Aucun slack détecté - le fichier remplit exactement la taille de cluster]'}"
         )
         self.preview_text.setPlainText(slack_report)
+
+    def export_file_slack(self, entry):
+        """Exporte les octets du File Slack brut vers un fichier .bin médico-légal."""
+        name, file_size, cluster_size, slack_size, slack_bytes = self._extract_slack_data(entry)
+        if slack_size == 0 or not slack_bytes:
+            QMessageBox.information(self, "Slack nul ou inaccessible", "Aucun octet de File Slack disponible pour l'extraction (taille de fichier alignée sur cluster ou stockage résident).")
+            return
+        clean_name = os.path.splitext(os.path.basename(str(name)))[0] + "_slack.bin"
+        out_path, _ = QFileDialog.getSaveFileName(self, "Enregistrer le File Slack brut", clean_name, "Binaire Forensique (*.bin);;Tous les fichiers (*.*)")
+        if not out_path:
+            return
+        try:
+            with open(out_path, "wb") as f_out:
+                f_out.write(slack_bytes)
+            md5_str = hashlib.md5(slack_bytes).hexdigest()
+            sha_str = hashlib.sha256(slack_bytes).hexdigest()
+            QMessageBox.information(
+                self,
+                "File Slack Extrait",
+                f"File Slack extrait avec succès :\n\n"
+                f"Chemin : {out_path}\n"
+                f"Taille : {len(slack_bytes):,} octets\n"
+                f"MD5    : {md5_str}\n"
+                f"SHA256 : {sha_str}"
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Erreur d'exportation", f"Impossible d'enregistrer le File Slack :\n\n{e}")
 
     # --- 0. Gestionnaire QNX Flash (F3S / ETFS) ---
     def _populate_f3s_tree(self, f3s: F3SReader, p: GPTPartitionEntry):
@@ -1620,7 +1753,7 @@ class VirtualExplorerDialog(QDialog):
             orphan_group = QTreeWidgetItem(self.tree, [t("explorer_orphaned_node"), "", "Conteneur Virtuel", "", ""])
             orphan_group.setForeground(0, QBrush(QColor("#e67e22")))
             self.all_tree_items.append(orphan_group)
-            for orph in ntfs.orphaned_entries:
+            for orph in ntfs.orphaned_entries[:500]:
                 status_str = t("explorer_status_deleted") if orph.is_deleted else t("explorer_status_active")
                 type_str = f"{'📁 Dossier' if orph.is_dir else '📄 Fichier'} ({status_str})"
                 item = QTreeWidgetItem(orphan_group, [
@@ -1635,6 +1768,9 @@ class VirtualExplorerDialog(QDialog):
                 item.setData(0, Qt.UserRole + 2, "NTFS")
                 item.setForeground(0, QBrush(QColor("#ff6b6b") if orph.is_deleted else QColor("#ffffff")))
                 self.all_tree_items.append(item)
+            if len(ntfs.orphaned_entries) > 500:
+                more_item = QTreeWidgetItem(orphan_group, [f"... ({len(ntfs.orphaned_entries) - 500} autres entrées orphelines omises)", "", "", "", ""])
+                self.all_tree_items.append(more_item)
 
         all_e = getattr(ntfs, "all_entries", getattr(ntfs, "entries", []))
         total_files = len(all_e)
@@ -1647,6 +1783,90 @@ class VirtualExplorerDialog(QDialog):
             f"Total Entrées MFT Analysées : {total_files}\n"
             f"Éléments Supprimés Détectés (Undelete) : {del_files}\n"
             f"Mode d'exploration : Navigation virtuelle ultra-rapide (Lazy-Loading actif)\n\n"
+            "Cliquez sur un fichier dans l'arborescence pour prévisualiser son contenu et ses hachages MD5/SHA-256."
+        )
+
+    # --- 6b. Gestionnaire Dissect NTFS (Index B-Tree haute performance) ---
+    def _add_dissect_ntfs_level(self, parent_item: QTreeWidgetItem, parent_node):
+        try:
+            entries = list(parent_node.iterdir(dereference=True, ignore_dos=True))
+        except Exception:
+            entries = []
+
+        sorted_entries = sorted(entries, key=lambda e: (not e.is_dir(), (e.filename or "").lower()))
+        for ch in sorted_entries:
+            try:
+                is_dir = ch.is_dir()
+            except Exception:
+                is_dir = False
+
+            name = ch.filename or "Inconnu"
+            status_str = t("explorer_status_active")
+            type_str = f"📁 Dossier ({status_str})" if is_dir else f"📄 Fichier ({status_str})"
+
+            size_str = ""
+            if not is_dir:
+                try:
+                    size_str = format_size(ch.size())
+                except Exception:
+                    size_str = "0 o"
+
+            mtime_str = ""
+            try:
+                import dissect.ntfs
+                si = ch.attributes.get(dissect.ntfs.ATTRIBUTE_TYPE_CODE.STANDARD_INFORMATION)
+                if si and si.last_modification_time:
+                    mtime_str = si.last_modification_time.strftime("%Y-%m-%d %H:%M:%S")
+            except Exception:
+                pass
+
+            item = QTreeWidgetItem(parent_item, [
+                name,
+                size_str,
+                type_str,
+                mtime_str,
+                str(getattr(ch, "segment", "")),
+            ])
+            item.setData(0, Qt.UserRole, ch)
+            item.setData(0, Qt.UserRole + 2, "DISSECT_NTFS")
+
+            if is_dir:
+                item.setForeground(0, QBrush(QColor("#ffffff")))
+                item.setForeground(2, QBrush(QColor("#3498db")))
+                item.setData(0, Qt.UserRole + 1, False)
+                dummy = QTreeWidgetItem(item, ["Chargement...", "", "", "", ""])
+                dummy.setData(0, Qt.UserRole, None)
+            else:
+                item.setForeground(0, QBrush(QColor("#ffffff")))
+                item.setForeground(2, QBrush(QColor("#2ecc71")))
+                item.setData(0, Qt.UserRole + 1, True)
+
+            self.all_tree_items.append(item)
+
+    def _populate_dissect_ntfs_tree(self, ntfs_obj, p: GPTPartitionEntry, vss_snapshot: Optional[str] = None):
+        """Construit le QTreeWidget avec la hiérarchie NTFS via B-Tree (Lazy-Loading instantané)."""
+        self.current_dissect_ntfs = ntfs_obj
+        root_record = ntfs_obj.mft.root
+        root_label = f"/ [NTFS {vss_snapshot}: {p.name or 'Partition'}]" if vss_snapshot else f"/ [NTFS Root: {p.name or 'Partition'}]"
+        root_item = QTreeWidgetItem(self.tree, [root_label, "", f"Racine NTFS {'(' + vss_snapshot + ')' if vss_snapshot else ''}", "", "5"])
+        root_item.setData(0, Qt.UserRole, root_record)
+        root_item.setData(0, Qt.UserRole + 1, True)
+        root_item.setData(0, Qt.UserRole + 2, "DISSECT_NTFS")
+        self.all_tree_items.append(root_item)
+
+        self._add_dissect_ntfs_level(root_item, root_record)
+        root_item.setExpanded(True)
+
+        hdr_prefix = f"=== CLICHÉ INSTANTANÉ WINDOWS VSS ({vss_snapshot}) ===\n\n" if vss_snapshot else "=== SYSTÈME DE FICHIERS NTFS (MOTEUR INDEX B-TREE $I30) ===\n\n"
+        self.preview_text.setPlainText(
+            f"{hdr_prefix}"
+            f"Taille de cluster : {ntfs_obj.cluster_size} octets\n"
+            f"Taille secteur    : {ntfs_obj.sector_size} octets\n"
+            f"Numéro de série   : {hex(ntfs_obj.serial) if hasattr(ntfs_obj, 'serial') else 'N/A'}\n"
+            f"Nom de volume     : {ntfs_obj.volume_name or 'Partition'}\n"
+            f"Indexation B-Tree : Active ($I30 résolu à la volée sans latence MFT)\n"
+            f"Mode d'exploration : Navigation virtuelle ultra-rapide (Lazy-Loading actif)\n\n"
+            "Développez les dossiers pour explorer l'arborescence instantanément.\n"
             "Cliquez sur un fichier dans l'arborescence pour prévisualiser son contenu et ses hachages MD5/SHA-256."
         )
 
@@ -1667,7 +1887,32 @@ class VirtualExplorerDialog(QDialog):
         # 1. Dossier
         if is_dir:
             children_count = len(getattr(entry, "children", []))
-            if isinstance(entry, NTFSFileEntry):
+            if getattr(entry, "__class__", None) and entry.__class__.__name__ == "MftRecord":
+                name = getattr(entry, "filename", "Dossier")
+                created_str, mod_str, mft_mod_str, acc_str = "N/A", "N/A", "N/A", "N/A"
+                try:
+                    import dissect.ntfs
+                    si = entry.attributes.get(dissect.ntfs.ATTRIBUTE_TYPE_CODE.STANDARD_INFORMATION)
+                    if si:
+                        created_str = si.creation_time.strftime("%Y-%m-%d %H:%M:%S") if si.creation_time else "N/A"
+                        mod_str = si.last_modification_time.strftime("%Y-%m-%d %H:%M:%S") if si.last_modification_time else "N/A"
+                        mft_mod_str = si.last_change_time.strftime("%Y-%m-%d %H:%M:%S") if si.last_change_time else "N/A"
+                        acc_str = si.last_access_time.strftime("%Y-%m-%d %H:%M:%S") if si.last_access_time else "N/A"
+                except Exception:
+                    pass
+
+                self.preview_text.setPlainText(
+                    f"=== DOSSIER FORENSIQUE (NTFS B-Tree) ===\n\n"
+                    f"Nom : {name}\n"
+                    f"Enregistrement MFT : #{getattr(entry, 'segment', 'N/A')}\n"
+                    f"Statut : ✔️ ACTIF\n"
+                    f"Date Création ($SI) : {created_str}\n"
+                    f"Date Modification ($SI) : {mod_str}\n"
+                    f"Date MFT Change ($SI) : {mft_mod_str}\n"
+                    f"Date Dernier Accès ($SI) : {acc_str}\n"
+                )
+                return
+            elif isinstance(entry, NTFSFileEntry):
                 self.preview_text.setPlainText(
                     f"=== DOSSIER FORENSIQUE (NTFS) ===\n\n"
                     f"Nom : {entry.name}\n"
@@ -1876,6 +2121,58 @@ class VirtualExplorerDialog(QDialog):
                 f"Empreinte SHA-256: {sha256_hash}\n\n"
                 f"--------------------------------------------------------------------------------\n"
             )
+        elif getattr(entry, "__class__", None) and entry.__class__.__name__ == "MftRecord":
+            name = getattr(entry, "filename", "Fichier")
+            try:
+                size = entry.size()
+            except Exception:
+                size = 0
+
+            content = b""
+            md5_hash = "N/A"
+            sha256_hash = "N/A"
+            try:
+                with entry.open() as fh:
+                    if size > 10 * 1024 * 1024:
+                        content = fh.read(65536)
+                        md5_hash = "(Fichier volumineux > 10 Mo - calculé lors de l'exportation)"
+                        sha256_hash = "(Fichier volumineux > 10 Mo - calculé lors de l'exportation)"
+                    else:
+                        content = fh.read()
+                        if content:
+                            md5_hash = hashlib.md5(content).hexdigest()
+                            sha256_hash = hashlib.sha256(content).hexdigest()
+            except Exception:
+                content = b""
+
+            created_str, mod_str, mft_mod_str, acc_str = "N/A", "N/A", "N/A", "N/A"
+            try:
+                import dissect.ntfs
+                si = entry.attributes.get(dissect.ntfs.ATTRIBUTE_TYPE_CODE.STANDARD_INFORMATION)
+                if si:
+                    created_str = si.creation_time.strftime("%Y-%m-%d %H:%M:%S") if si.creation_time else "N/A"
+                    mod_str = si.last_modification_time.strftime("%Y-%m-%d %H:%M:%S") if si.last_modification_time else "N/A"
+                    mft_mod_str = si.last_change_time.strftime("%Y-%m-%d %H:%M:%S") if si.last_change_time else "N/A"
+                    acc_str = si.last_access_time.strftime("%Y-%m-%d %H:%M:%S") if si.last_access_time else "N/A"
+            except Exception:
+                pass
+
+            resident_str = "Oui ($DATA résident)" if getattr(entry, "resident", False) else "Non (Runs de clusters)"
+            meta_header = (
+                f"=== MÉTADONNÉES FORENSIQUES DU FICHIER (NTFS B-Tree) ===\n\n"
+                f"Nom de fichier : {name}\n"
+                f"Enregistrement MFT : #{getattr(entry, 'segment', 'N/A')} (Séquence : {getattr(getattr(entry, 'header', None), 'SequenceNumber', 'N/A')})\n"
+                f"Statut : ✔️ ACTIF (Alloué)\n"
+                f"Taille Réelle : {size:,} octets ({format_size(size)})\n"
+                f"Stockage : {resident_str}\n"
+                f"Horodatage Création ($SI) : {created_str}\n"
+                f"Horodatage Modifié ($SI)  : {mod_str}\n"
+                f"Horodatage MFT ($SI)      : {mft_mod_str}\n"
+                f"Horodatage Accès ($SI)    : {acc_str}\n\n"
+                f"Empreinte MD5    : {md5_hash}\n"
+                f"Empreinte SHA-256: {sha256_hash}\n\n"
+                f"--------------------------------------------------------------------------------\n"
+            )
         else:
             # AD1 FileEntry
             raw_sz = getattr(entry, "size", None)
@@ -1963,7 +2260,7 @@ class VirtualExplorerDialog(QDialog):
             QMessageBox.information(self, "Dossier sélectionné", "L'exportation directe est réservée aux fichiers. Sélectionnez un fichier individuel.")
             return
 
-        clean_name = getattr(entry, "name", "extracted_file").replace("🗑️", "").strip()
+        clean_name = (getattr(entry, "name", None) or getattr(entry, "filename", "extracted_file")).replace("🗑️", "").strip()
         out_path, _ = QFileDialog.getSaveFileName(self, "Enregistrer l'artefact extrait", clean_name, "Tous les fichiers (*.*)")
         if not out_path:
             return

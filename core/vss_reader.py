@@ -62,7 +62,7 @@ class VSSReader:
 
     def _scan_vss_stores(self):
         """Scanne les structures de catalogues VSS sur les premiers Mo et les zones de stockage."""
-        scan_size = min(self.size, 64 * 1024 * 1024)
+        scan_size = min(self.size, 8 * 1024 * 1024)
         sample = self.reader.read_bytes(self.offset, scan_size)
 
         # Signature catalogue VSS : GUID VSS ou signature de blocs VSS

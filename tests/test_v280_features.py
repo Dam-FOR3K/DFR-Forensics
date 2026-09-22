@@ -363,3 +363,47 @@ def test_raw_search_dialog_init(temp_img):
     reader.close()
 
 
+def test_reader_stream_and_slack_inspector(temp_img):
+    """Vérifie l'adaptateur de flux ReaderStream et l'extracteur de slack de VirtualExplorerDialog."""
+    from ui.file_explorer_dialog import ReaderStream, VirtualExplorerDialog
+    from core.ntfs_reader import NTFSFileEntry
+
+    path = temp_img(size=1024 * 1024)
+    with open(path, "r+b") as f:
+        f.seek(1000)
+        f.write(b"HELLO_DISSECT_NTFS_TEST_DATA")
+    reader = RawImageReader(path)
+
+    # 1. ReaderStream tests
+    stream = ReaderStream(reader, offset_bytes=1000, size_bytes=100)
+    assert stream.readable() is True
+    assert stream.seekable() is True
+    assert stream.tell() == 0
+    data = stream.read(5)
+    assert data == b"HELLO"
+    assert stream.tell() == 5
+    stream.seek(6)
+    data2 = stream.read(7)
+    assert data2 == b"DISSECT"
+
+    # 2. Slack Inspector extraction test
+    from PySide6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication([])
+    dialog = VirtualExplorerDialog(reader, diag=None)
+
+    entry = NTFSFileEntry(record_num=100)
+    entry.name = "test_slack.txt"
+    entry.size = 3000
+    entry.allocated_size = 4096
+    entry.data_runs = [(10, 1)]
+
+    name, fsize, csize, slack_size, slack_bytes = dialog._extract_slack_data(entry)
+    assert name == "test_slack.txt"
+    assert fsize == 3000
+    assert csize == 4096
+    assert slack_size == 4096 - 3000  # 1096 bytes slack
+    dialog.close()
+    reader.close()
+
+
+

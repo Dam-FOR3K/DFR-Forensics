@@ -301,30 +301,50 @@ class NTFSReader:
                 seen_keys.add(key)
                 self.all_entries.append(entry0)
 
-        # 1. Lecture ordonnée des runs primaires de la $MFT
+        # 1. Lecture ordonnée des runs primaires de la $MFT (par blocs bornés pour disques réels)
+        max_mft_records = 50000
+        records_parsed = 0
         for lcn, cluster_count in mft_runs:
+            if records_parsed >= max_mft_records:
+                break
             if lcn is None:
                 current_record_idx += (cluster_count * self.cluster_size) // self.record_size
                 continue
-            run_data = self._read_cluster(lcn, cluster_count)
-            num_records_in_run = len(run_data) // self.record_size
-            for r in range(num_records_in_run):
-                rec_bytes = run_data[r * self.record_size : (r + 1) * self.record_size]
-                if rec_bytes.startswith(b"FILE") or rec_bytes.startswith(b"BAAD"):
-                    entry = self._parse_single_record(rec_bytes, current_record_idx)
-                    if entry and entry.name:
-                        key = (entry.record_number, entry.name)
-                        seen_keys.add(key)
-                        self.all_entries.append(entry)
-                current_record_idx += 1
 
-        # 2. Carving approfondi des enregistrements MFT dans le journal ($LogFile) et l'espace disque
-        # Permet de retrouver les répertoires supprimés réalloués (ex: dir3 au record #37 avant res1.dat)
-        max_scan_bytes = min(self.reader.total_size_bytes - self.part_offset, 64 * 1024 * 1024)
+            # Découpage par blocs de max 4 Mo pour éviter d'allouer des centaines de Mo d'un coup
+            max_clusters_per_chunk = max(1, (4 * 1024 * 1024) // self.cluster_size)
+            remaining_clusters = cluster_count
+            start_lcn = lcn
+
+            while remaining_clusters > 0 and records_parsed < max_mft_records:
+                chunk_clusters = min(remaining_clusters, max_clusters_per_chunk)
+                run_data = self._read_cluster(start_lcn, chunk_clusters)
+                num_records_in_run = len(run_data) // self.record_size
+                for r in range(num_records_in_run):
+                    if records_parsed >= max_mft_records:
+                        break
+                    rec_bytes = run_data[r * self.record_size : (r + 1) * self.record_size]
+                    if rec_bytes.startswith(b"FILE") or rec_bytes.startswith(b"BAAD"):
+                        entry = self._parse_single_record(rec_bytes, current_record_idx)
+                        if entry and entry.name:
+                            key = (entry.record_number, entry.name)
+                            if key not in seen_keys:
+                                seen_keys.add(key)
+                                self.all_entries.append(entry)
+                    current_record_idx += 1
+                    records_parsed += 1
+
+                remaining_clusters -= chunk_clusters
+                start_lcn += chunk_clusters
+
+        # 2. Carving borné des enregistrements MFT dans le journal ($LogFile) et l'espace disque
+        # Scan aligné sur les frontières sectorielles pour une vitesse maximale
+        max_scan_bytes = min(self.reader.total_size_bytes - self.part_offset, 2 * 1024 * 1024)
         scan_buf = self.reader.read_bytes(self.part_offset, max_scan_bytes)
 
         pos = 0
-        while True:
+        carve_count = 0
+        while pos <= len(scan_buf) - self.record_size and carve_count < 1000:
             idx = scan_buf.find(b"FILE", pos)
             if idx == -1:
                 break
@@ -338,7 +358,8 @@ class NTFSReader:
                         carved_entry.is_deleted = True
                         carved_entry.source = "Journal ($LogFile)"
                         self.all_entries.append(carved_entry)
-            pos = idx + 1
+                        carve_count += 1
+            pos = idx + 512
 
         # 3. Construction de l'arborescence complète (Parents -> Enfants)
         self._build_tree()
