@@ -2,7 +2,7 @@
 ### *Disk & File Resurrection*
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version: v2.7.3](https://img.shields.io/badge/Version-v2.7.3-blue.svg)](https://github.com/Dam-FOR3K/DFR-Forensics)
+[![Version: v2.8.0](https://img.shields.io/badge/Version-v2.8.0-blue.svg)](https://github.com/Dam-FOR3K/DFR-Forensics)
 [![Author: Dam--FOR3K](https://img.shields.io/badge/Author-Dam--FOR3K-orange.svg)](https://github.com/Dam-FOR3K)
 [![Python: 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![GUI: PySide6](https://img.shields.io/badge/GUI-PySide6%20%2F%20Qt6-brightgreen.svg)](https://wiki.qt.io/Qt_for_Python)
@@ -42,12 +42,19 @@ When storage media suffer destructive wiper attacks (*HermeticWiper*, *CaddyWipe
 * **Double Indirect Pointer Resolution**: Decodes legacy Ext2/3 block pointer trees (12 direct, single indirect, and double indirect pointer 13) without external tooling.
 * **Directory Slack Space Undelete**: Scans residual slack space inside directory entry records (`rec_len`) to extract and reconstruct unlinked deleted files with original names and attributes.
 
-### 4. Pure-Python Filesystem Parsers
-* **NTFS $MFT, $MFTMirr & Undelete**: Direct pure-Python parser reading `$MFT` 1,024-byte records, Update Sequence Array fixups, `$STANDARD_INFORMATION` (quadruple MACB timestamps), `$FILE_NAME`, and `$DATA` resident vs non-resident runlists. Automatic failover to `$MFTMirr` (offset `0x38`) when Record 0 is damaged, and Backup VBR resolution at volume end ($LBA\ N-1$).
+### 4. Comprehensive Pure-Python Filesystem & Embedded Engines
+* **NTFS $MFT, $MFTMirr, Undelete & Windows VSS**: Direct pure-Python parser reading `$MFT` 1,024-byte records, Update Sequence Array fixups, `$STANDARD_INFORMATION` (quadruple MACB timestamps), `$FILE_NAME`, and `$DATA` resident vs non-resident runlists. Automatic failover to `$MFTMirr` (offset `0x38`) when Record 0 is damaged, Backup VBR resolution at volume end ($LBA\ N-1$), and discovery of **Windows Volume Shadow Copies (VSS)** historical snapshots via `scek` catalog descriptors with 100ns FILETIME timestamps.
 * **Native exFAT Engine**: Pure-Python implementation with Backup VBR (sector 12) failover, directory entry chain parsing (`0x85` File, `0xC0` Stream Extension, `0xC1` File Name), contiguous and FAT-chained cluster resolution, and deleted file undelete.
-* **Apple APFS**: Parses `NXSB` Container Superblocks, Object Map (OMAP) B-Trees, and enumerates volumes.
+* **Apple APFS & Multi-Volume Container Support**: Parses `NXSB` Container Superblocks, Object Map (OMAP) B-Trees, and automatically exposes separated individual sub-volumes in both partition overview and file explorer.
+* **Apple HFS+ / HFSX & $AllocationFile**: Native reader for Volume Header (`0x482B` 'H+' / `0x4858` 'HX'), Catalog B-Tree leaf node decoding, big-endian Unicode strings, file extents, and unallocated space mapping via `$AllocationFile` bitmap.
+* **QNX Flash Filesystem (F3S / ETFS)**: Specialized forensic reader for embedded automotive NOR/NAND flash memory dumps (e.g. Continental, Harman, Bosch head units), parsing 64K–128K Erase Units, record headers, metadata, file data, and undeleting removed flash records.
 * **QNX4 & QNX6 Power-Safe**: Multi-generation superblocks (`0x68191122`), transaction logs, and inode trees from automotive head units and IoT controllers.
+* **Linux Embedded & IoT Systems**:
+  * **SquashFS v4**: Read-only compressed filesystem parser supporting Little-Endian (`hsqs`) and Big-Endian (`sqsh`) formats with GZIP, XZ, and LZMA block decompression.
+  * **CPIO / Initramfs**: Parser for boot archives (`070701` portable ASCII format and `070702` CRC format).
+  * **F2FS, EROFS, UBI / UBIFS, JFFS2**: Structural recognition and metadata analysis for Android and flash media.
 * **BitLocker & LUKS1/2**: Transparent in-memory cryptographic engine unlocking volumes via recovery password, passphrase, or raw key files.
+
 
 ### 5. Intelligent Carving Engine, Alignment Strategies & Controlled De-Braiding
 * **Format-Specific Mathematical Validation**:
@@ -75,19 +82,32 @@ When storage media suffer destructive wiper attacks (*HermeticWiper*, *CaddyWipe
   * **Permissive Decoding Mode**: Pillow fallback with `LOAD_TRUNCATED_IMAGES = True` when strict parsers reject damaged files.
   * **Surgical Header Tolerance**: Dynamically patches corrupted marker lengths (e.g. corrupted DQT table length `FF DB 00 00`) in memory to achieve 100% visual preview.
 
-### 6. Four-Tier Shannon Entropy Heatmap
+### 6. File Slack Inspector & Residual Data Analysis
+* **Contextual Right-Click Exploration**: Inspects any file's exact residual slack allocation directly from the virtual file explorer tree.
+* **RAM Slack**: Bytes between the logical end-of-file and the end of the containing 512-byte sector, revealing residual memory buffers leaked during OS write operations.
+* **Drive Slack**: Unallocated sectors within the final cluster assigned to the file, preserving critical forensic traces of previous files, deleted records, or hidden payloads.
+* **Live Hexadecimal Dump**: Immediate interactive hex inspection of slack bytes without manual offset math.
+
+### 7. High-Throughput Streaming Raw Keyword & Regex Search
+* **Multi-Threaded Architecture**: Independent background scanner streaming disk chunks with configurable overlap to prevent split-match omissions at boundary borders.
+* **Flexible Querying**: Supports ASCII/UTF-8 literal strings (case-sensitive or insensitive) and complex regular expressions (e.g. credit cards, IP addresses, hashes, serial numbers, VINs).
+* **Target Scopes**: Scan either the entire physical drive / container or exclusively unallocated clusters.
+* **Forensic Audit Table & Export**: Live results list with LBA, exact byte offsets, matched terms, contextual ASCII and Hex dumps, and 1-click CSV export for official reports.
+
+### 8. Binwalk-Inspired Shannon Entropy Heatmap & 0xFF Flash Detection
 * Computes local Shannon entropy: $H(X) = -\sum_{i=0}^{255} p(x_i) \log_2 p(x_i)$.
 * **Multi-level forensic classification**:
-  * 🟩 **Emerald Green (`#27ae60`)**: Clear active data ($H \le 7.4$).
+  * 🟩 **Emerald Green (`#27ae60`)**: Clear active data ($H \le 7.4$, code, text, metadata).
   * 🟦 **Dodger Blue / Cyan (`#0984e3`)**: Compressed media ($7.4 < H \le 7.88$, JPEG, MP4, ZIP, PDF).
-  * 🟪 **Deep Purple (`#8e44ad`)**: High entropy / True encryption ($H > 7.88$, BitLocker, LUKS).
-  * ⬛ **Bordeaux Black (`#221010`)**: 100% Zeroes / Wiped space (Zeros ratio $> 98\%$).
+  * 🟪 **Deep Purple (`#8e44ad`)**: High entropy / True encryption ($H > 7.88$, BitLocker, LUKS, encrypted volumes).
+  * ⬛ **Bordeaux Black (`#221010`)**: 100% Zeroes / Wiped magnetic space (Zeros ratio $> 98\%$).
+  * ⬜ **Light Grey Flash (`#d1d5db`)**: 100% 0xFF / Erased solid-state flash memory blocks.
 
-### 7. Wipe Frontier Boundary Detection
+### 9. Wipe Frontier Boundary Detection
 * Two-phase search algorithm: fast macro-sampling followed by sector-level binary convergence down to 512-byte precision.
 * Determines the exact boundary where wiper destruction ceased and intact data survives.
 
-### 8. Live Physical Drives & Forensic Containers
+### 10. Live Physical Drives & Forensic Containers
 * **Physical Hardware Access**: Direct raw access under Windows (`\\.\PhysicalDrive0..N`) and Linux/macOS (`/dev/sdX`, `/dev/nvmeX`) with automated bad sector tolerance.
 * **Forensic Containers**: E01, Ex01, Split Raw (`.001`, `.002`), AFF4, AD1, and DMG.
 * **Streaming Exporter**: Export raw or decrypted partitions with real-time **MD5** and **SHA-256** hash generation.
@@ -100,8 +120,13 @@ When storage media suffer destructive wiper attacks (*HermeticWiper*, *CaddyWipe
 | :--- | :--- | :--- | :--- | :---: |
 | **Severed Boot Sector (VBR)** | FAT16 / FAT32 / exFAT | LBA 0 wiped (zeros), partition table destroyed | Backup Boot Sector failover & autonomous BPB derivation | 🟢 **100% Bit-Exact Recovery** |
 | **Damaged $MFT Record 0** | NTFS | Sector 0 MFT corrupted or zeroed | `$MFTMirr` (cluster 0x38) Data Runs fallback & Backup VBR | 🟢 **100% Tree Reconstruction** |
+| **Historical NTFS Snapshots** | Windows VSS | Previous states locked in volume shadow copies | Heuristic `scek` catalog parsing & FILETIME timestamps | 🟢 **100% Snapshot Extraction** |
 | **Fragmented Large Files** | Linux EXT4 | Non-contiguous multi-GB files | Inode Extent Tree parsing (`0xF30A`) across depth levels | 🟢 **100% Bit-Exact Recovery** |
 | **Severed Primary Superblock** | Linux EXT2 / EXT3 / EXT4 | Superblock wiped, deleted directory slack space | Backup superblock failover & double-indirect defragmentation | 🟢 **100% Bit-Exact Recovery** |
+| **Embedded Automotive Flash** | QNX F3S / ETFS | NOR/NAND raw chip dump with deleted files | Erase unit scan, record parsing & deleted file carving | 🟢 **100% Inode & File Extraction** |
+| **Mac OS Extended Volume** | Apple HFS+ / HFSX | Primary partition unmounted, damaged catalogue | Leaf node B-Tree traversal & `$AllocationFile` unallocated carving | 🟢 **100% Bit-Exact Recovery** |
+| **Compressed IoT Firmware** | Linux SquashFS v4 | Raw flash dump of router / dashcam firmware | Superblock parsing & block decompression (GZIP/XZ/LZMA) | 🟢 **100% Tree Reconstruction** |
+| **Linux Initrd Archive** | CPIO / Initramfs | Embedded kernel ramdisk archive | SVR4 portable ASCII decoding & file stream extraction | 🟢 **100% Bit-Exact Recovery** |
 | **Volume Label Steganography** | FAT12 / FAT16 / FAT32 | Payload concealed under Volume Label attribute `0x08` | Automated anomaly detection & directory attribute carving | 🟢 **100% File Integrity** |
 | **Fragmented Partition Chains** | DOS MBR / Extended EBR | Fragmented EBR linked list with unallocated gaps | Deep recursive traversal & unallocated gap recovery | 🟢 **100% Tree Reconstruction** |
 | **Braided / Interleaved Media** | NIST CFTT Graphic Suite | 1A-1B-2A-2B alternating interleaved pairs | `BraidResolver` spiral delta disentanglement & stream stitching | 🟢 **100% (20/20) Bit-Exact Carving** |
@@ -121,7 +146,7 @@ DFR-Forensics/
 │   ├── synthesizer.py          # Superblock carver & heuristic GPT synthesis
 │   ├── carver.py               # Intelligent format-specific carver & validators (JPEG, PNG, BMP, GIF, TIFF, OLE, PDF, ZIP)
 │   ├── defragmenter.py         # In-Memory De-Braiding & fragmented stream reconstruction (NIST CFTT)
-│   ├── unallocated.py          # Filesystem unallocated cluster & gap mapping (NTFS, FAT, exFAT, EXT, QNX, APFS)
+│   ├── unallocated.py          # Filesystem unallocated cluster & gap mapping (NTFS, FAT, exFAT, EXT, QNX, APFS, HFS+)
 │   ├── correlator.py           # Orphan directory metadata correlator
 │   ├── crypto_engine.py        # LUKS1/2 & BitLocker in-memory decryption
 │   ├── ntfs_reader.py          # Pure-Python NTFS parser & MFT undelete
@@ -129,6 +154,13 @@ DFR-Forensics/
 │   ├── exfat_reader.py         # Pure-Python exFAT parser, Backup VBR & stream resolution
 │   ├── ext_reader.py           # Ext2/Ext3/Ext4 parser, extents tree & double-indirect defragmenter
 │   ├── qnx_reader.py           # QNX4 & QNX6 Power-Safe parser
+│   ├── f3s_reader.py           # QNX Flash Filesystem (F3S / ETFS) automotive NOR/NAND reader
+│   ├── hfs_reader.py           # Apple HFS+ / HFSX B-Tree catalogue & allocation reader
+│   ├── squashfs_reader.py      # Linux SquashFS v4 compressed filesystem parser
+│   ├── cpio_reader.py          # Linux Initramfs / CPIO archive extractor
+│   ├── embedded_flash.py       # Unified F2FS, EROFS, UBI/UBIFS, JFFS2 parser
+│   ├── vss_reader.py           # Windows Volume Shadow Copies (VSS) snapshot parser
+│   ├── raw_search.py           # Multi-threaded streaming raw keyword & regex scanner
 │   ├── apfs_reader.py          # Apple APFS container & volume reader
 │   ├── partition_exporter.py   # Streaming exporter with live MD5 & SHA-256
 │   ├── entropy.py              # Shannon entropy computation engine
@@ -136,9 +168,10 @@ DFR-Forensics/
 ├── ui/                         # Graphical user interface (PySide6 / Qt6)
 │   ├── app_gui.py              # Main window, controls, and docking layout
 │   ├── physical_drive_dialog.py# Physical drive selector modal with UAC elevation
-│   ├── disk_canvas.py          # Interactive zoomable spatial canvas & 4-tier entropy heatmap
-│   ├── file_explorer_dialog.py # In-memory filesystem tree & file extractor
+│   ├── disk_canvas.py          # Interactive zoomable spatial canvas & Binwalk entropy heatmap
+│   ├── file_explorer_dialog.py # In-memory filesystem tree, slack inspector & file extractor
 │   ├── carver_dialog.py        # Advanced carving dialog with resilient preview cocktail
+│   ├── raw_search_dialog.py    # Multi-threaded streaming keyword/regex search dialog
 │   ├── hex_viewer.py           # High-performance 512-byte sector hex viewer
 │   └── repair_dialog.py        # UEFI GPT repair confirmation dialog
 ├── docs/                       # Technical whitepapers (PDF FR & EN)
@@ -199,5 +232,6 @@ The graphical user interface supports **English** and **Français** out of the b
 
 ## 📄 License & Author
 * **Author**: Dam-FOR3K
-* **Version**: v2.7.3
+* **Version**: v2.8.0
 * **License**: MIT License. See [LICENSE](LICENSE) for details.
+

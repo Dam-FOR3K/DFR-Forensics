@@ -218,7 +218,7 @@ class DiskCanvas(QWidget):
                     z_ratio = 1.0
                     ent = 0.0
 
-                if z_ratio > 0.98:
+                if z_ratio > 0.98 or (data and data.count(b"\xff") > len(data) * 0.98):
                     cat = "wiped"
                 elif ent > 7.88:
                     cat = "encrypted"
@@ -279,7 +279,7 @@ class DiskCanvas(QWidget):
                         z_ratio = 1.0
                         ent = 0.0
 
-                    if z_ratio > 0.98:
+                    if z_ratio > 0.98 or (data and data.count(b"\xff") > len(data) * 0.98):
                         cat = "wiped"
                     elif ent > 7.88:
                         cat = "encrypted"
@@ -511,8 +511,8 @@ class DiskCanvas(QWidget):
         painter.setPen(QColor(255, 255, 255, 140))
         painter.setFont(QFont("Segoe UI", 7, QFont.Bold))
         from core.i18n import get_lang
-        legend_txt = ("PRÉSENCE DES DONNÉES (VERT = CLAIR | BLEU = COMPRESSÉ/MÉDIAS | VIOLET = CHIFFRÉ | NOIR = ZÉROS)" if get_lang() == "fr"
-                      else "DATA PRESENCE (GREEN = CLEAR | BLUE = COMPRESSED/MEDIA | PURPLE = ENCRYPTED | BLACK = ZEROS)")
+        legend_txt = ("ANALYSE D'ENTROPIE (BINWALK) & PRÉSENCE (VERT = CLAIR | BLEU = COMPRESSÉ | VIOLET = CHIFFRÉ | NOIR = EFFACÉ)" if get_lang() == "fr"
+                      else "BINWALK ENTROPY & DATA PRESENCE (GREEN = CLEAR | BLUE = COMPRESSED | PURPLE = ENCRYPTED | BLACK = ERASED)")
         painter.drawText(6, d_y + 12, legend_txt)
 
         # ----------------------------------------------------

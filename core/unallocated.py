@@ -558,7 +558,60 @@ def get_unallocated_ranges_for_partition(
         if ranges:
             return ranges
 
+    # 7. Test Apple HFS+
+    if "HFS" in fs_hint or fs_hint == "":
+        ranges = extract_unallocated_hfs(reader, part_offset, part_sectors)
+        if ranges:
+            return ranges
+
     return []
+
+
+def extract_unallocated_hfs(reader: ForensicImageReader, part_offset: int, part_sectors: int) -> List[Tuple[int, int]]:
+    """Extrait les plages de blocs libres d'un volume Apple HFS+ via son fichier $AllocationFile."""
+    try:
+        from core.hfs_reader import HFSReader
+        hfs = HFSReader(reader, partition_offset_bytes=part_offset, partition_size_bytes=part_sectors * reader.sector_size)
+        if not hfs.is_valid_hfs or not hfs.allocation_file_extents:
+            return []
+
+        part_lba = part_offset // reader.sector_size
+        sectors_per_block = max(1, hfs.block_size // reader.sector_size)
+
+        # Lire le bitmap complet d'allocation
+        bitmap = hfs.get_allocation_bitmap()
+        if not bitmap:
+            return []
+
+        total_blocks = min(hfs.total_blocks, len(bitmap) * 8)
+        free_ranges: List[Tuple[int, int]] = []
+        in_free = False
+        free_start = 0
+
+        # En HFS+, bit 1 = bloc alloué, bit 0 = bloc libre !
+        for b_idx in range(total_blocks):
+            byte_val = bitmap[b_idx // 8]
+            bit_val = (byte_val >> (7 - (b_idx % 8))) & 1
+
+            if bit_val == 0:  # Bloc libre
+                if not in_free:
+                    in_free = True
+                    free_start = b_idx
+            else:
+                if in_free:
+                    in_free = False
+                    s_lba = part_lba + free_start * sectors_per_block
+                    e_lba = part_lba + b_idx * sectors_per_block - 1
+                    free_ranges.append((s_lba, e_lba))
+
+        if in_free:
+            s_lba = part_lba + free_start * sectors_per_block
+            e_lba = part_lba + total_blocks * sectors_per_block - 1
+            free_ranges.append((s_lba, e_lba))
+
+        return merge_lba_ranges(free_ranges)
+    except Exception:
+        return []
 
 
 def get_unallocated_ranges_for_disk(

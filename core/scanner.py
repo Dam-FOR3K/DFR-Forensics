@@ -37,6 +37,18 @@ KNOWN_SIGNATURES = [
     (4096, b"\x68\x19\x11\x22", "QNX6 Power-Safe Filesystem"),
     (512, b"/\x00", "QNX4 Filesystem Root Directory"),
     (0, b"XFSB", "XFS Filesystem"),
+    (44, b"QSSL_F3S", "QNX Flash Filesystem (F3S)"),
+    # Apple HFS+ / HFSX
+    (1024, b"H+", "Apple HFS+ Filesystem"),
+    (1024, b"HX", "Apple HFSX Filesystem"),
+    # Systèmes Linux Embarqués / IoT
+    (0, b"hsqs", "SquashFS Filesystem"),
+    (0, b"sqsh", "SquashFS Filesystem (Big-Endian)"),
+    (0, b"070701", "CPIO / Initramfs Archive"),
+    (0, b"070702", "CPIO / Initramfs Archive (CRC)"),
+    (0, b"UBI#", "UBI Flash Container"),
+    (1024, b"\x10\x20\xf5\xf2", "F2FS Filesystem (Android)"),
+    (1024, b"\xe2\xe1\xf5\xe0", "EROFS Filesystem (Android)"),
     # Signatures de secours (Backup Boot Sectors)
     (3072 + 82, b"FAT32   ", "FAT32 Filesystem (Backup Boot Sector)"),
     (6144 + 3, b"EXFAT   ", "exFAT Filesystem (Backup VBR)"),
@@ -119,6 +131,31 @@ def detect_all_filesystems(sample_data: bytes) -> List[str]:
         if sample_data[1080:1082] == b"\x53\xef":
             detected.append("Ext2/Ext3")
 
+    # HFS+ / HFSX (offset 1024, magic 'H+' ou 'HX')
+    if len(sample_data) >= 1026:
+        if sample_data[1024:1026] in (b"H+", b"HX"):
+            detected.append("HFS+")
+
+    # SquashFS (offset 0, magic 'hsqs' ou 'sqsh')
+    if len(sample_data) >= 4:
+        if sample_data[:4] in (b"hsqs", b"sqsh"):
+            detected.append("SquashFS")
+        elif sample_data[:6] in (b"070701", b"070702"):
+            detected.append("CPIO")
+        elif sample_data[:4] == b"UBI#":
+            detected.append("UBI")
+
+    # QNX Flash F3S
+    if b"QSSL_F3S" in sample_data[:4096]:
+        detected.append("QNX F3S")
+
+    # F2FS / EROFS (offset 1024)
+    if len(sample_data) >= 1028:
+        if sample_data[1024:1028] == b"\x10\x20\xf5\xf2":
+            detected.append("F2FS")
+        elif sample_data[1024:1028] == b"\xe2\xe1\xf5\xe0":
+            detected.append("EROFS")
+
     # UFS1 / UFS2 Superblocks
     if len(sample_data) >= 8192 + 2048:
         chunk = sample_data[8192 : 8192 + 4096]
@@ -182,6 +219,50 @@ class DiskScanner:
         self.reader = reader
         self.sector_size = reader.sector_size
         self.total_sectors = reader.total_sectors
+
+    def _enrich_partition_entry(self, entry: GPTPartitionEntry):
+        """Détecte les systèmes de fichiers, conteneurs chiffrés et sous-volumes APFS."""
+        try:
+            read_bytes_count = min(65536 + 4096, max(16384, entry.total_sectors * self.sector_size))
+            fs_sample = self.reader.read_bytes(entry.first_lba * self.sector_size, read_bytes_count)
+            entry.detected_fs = identify_fs_signature(fs_sample)
+            all_fs = detect_all_filesystems(fs_sample)
+            entry.coexisting_filesystems = all_fs
+            if len(all_fs) > 1:
+                entry.multi_fs_warning = True
+            if (not entry.detected_fs or entry.detected_fs == "Unknown") and all_fs:
+                entry.detected_fs = all_fs[0]
+
+            # Conteneurs chiffrés BitLocker / LUKS
+            if entry.detected_fs and any(k in entry.detected_fs for k in ["LUKS", "BitLocker"]):
+                try:
+                    from core.crypto_engine import EncryptedVolumeHandler
+                    h = EncryptedVolumeHandler(self.reader, entry.first_lba, entry.total_sectors)
+                    if h.is_encrypted:
+                        entry.crypto_metadata = h.metadata
+                except Exception:
+                    pass
+
+            # Sous-volumes APFS
+            if entry.detected_fs and "APFS" in entry.detected_fs.upper():
+                try:
+                    from core.apfs_reader import APFSReader
+                    part_size = entry.total_sectors * self.sector_size
+                    apfs_probe = APFSReader(self.reader, partition_offset_bytes=entry.first_lba * self.sector_size, partition_size_bytes=part_size)
+                    if apfs_probe.is_valid_apfs and apfs_probe.volumes:
+                        entry.sub_volumes = [
+                            {
+                                "name": v.name,
+                                "uuid": v.uuid,
+                                "is_encrypted": v.is_encrypted,
+                                "fs_type": "Volume APFS",
+                            }
+                            for v in apfs_probe.volumes
+                        ]
+                except Exception:
+                    pass
+        except Exception:
+            entry.detected_fs = None
 
     def run_full_scan(self) -> ScanDiagnostic:
         diag = ScanDiagnostic()
@@ -256,26 +337,7 @@ class DiskScanner:
                             entry_raw = part_bytes[i * entry_size : (i + 1) * entry_size]
                             entry = GPTPartitionEntry.parse(entry_raw)
                             if entry and not entry.is_empty():
-                                try:
-                                    read_bytes_count = min(65536 + 4096, max(16384, entry.total_sectors * self.sector_size))
-                                    fs_sample = self.reader.read_bytes(entry.first_lba * self.sector_size, read_bytes_count)
-                                    entry.detected_fs = identify_fs_signature(fs_sample)
-                                    all_fs = detect_all_filesystems(fs_sample)
-                                    entry.coexisting_filesystems = all_fs
-                                    if len(all_fs) > 1:
-                                        entry.multi_fs_warning = True
-                                    if (not entry.detected_fs or entry.detected_fs == "Unknown") and all_fs:
-                                        entry.detected_fs = all_fs[0]
-                                    if entry.detected_fs and any(k in entry.detected_fs for k in ["LUKS", "BitLocker"]):
-                                        try:
-                                            from core.crypto_engine import EncryptedVolumeHandler
-                                            h = EncryptedVolumeHandler(self.reader, entry.first_lba, entry.total_sectors)
-                                            if h.is_encrypted:
-                                                entry.crypto_metadata = h.metadata
-                                        except Exception:
-                                            pass
-                                except Exception:
-                                    entry.detected_fs = None
+                                self._enrich_partition_entry(entry)
                                 entries.append(entry)
                         diag.partitions = entries
                         diag.primary_partitions_valid = True
@@ -307,27 +369,7 @@ class DiskScanner:
                         entry_raw = part_bytes[i * entry_size : (i + 1) * entry_size]
                         entry = GPTPartitionEntry.parse(entry_raw)
                         if entry and not entry.is_empty():
-                            # Vérifier si le FS est identifiable
-                            try:
-                                read_bytes_count = min(65536 + 4096, max(16384, entry.total_sectors * self.sector_size))
-                                fs_sample = self.reader.read_bytes(entry.first_lba * self.sector_size, read_bytes_count)
-                                entry.detected_fs = identify_fs_signature(fs_sample)
-                                all_fs = detect_all_filesystems(fs_sample)
-                                entry.coexisting_filesystems = all_fs
-                                if len(all_fs) > 1:
-                                    entry.multi_fs_warning = True
-                                if (not entry.detected_fs or entry.detected_fs == "Unknown") and all_fs:
-                                    entry.detected_fs = all_fs[0]
-                                if entry.detected_fs and any(k in entry.detected_fs for k in ["LUKS", "BitLocker"]):
-                                    try:
-                                        from core.crypto_engine import EncryptedVolumeHandler
-                                        h = EncryptedVolumeHandler(self.reader, entry.first_lba, entry.total_sectors)
-                                        if h.is_encrypted:
-                                            entry.crypto_metadata = h.metadata
-                                    except Exception:
-                                        pass
-                            except Exception:
-                                entry.detected_fs = None
+                            self._enrich_partition_entry(entry)
                             entries.append(entry)
 
                     if not diag.partitions or len(entries) >= len(diag.partitions):
@@ -419,32 +461,9 @@ class DiskScanner:
                 # Identifier les systèmes de fichiers et les éventuelles coexistences multi-FS
                 multi_fs_warnings_count = 0
                 for entry in mbr_partitions:
-                    try:
-                        read_bytes_count = min(65536 + 4096, entry.total_sectors * self.sector_size)
-                        fs_sample = self.reader.read_bytes(entry.first_lba * self.sector_size, read_bytes_count)
-                        entry.detected_fs = identify_fs_signature(fs_sample[:4096])
-                        all_fs = detect_all_filesystems(fs_sample)
-                        entry.coexisting_filesystems = all_fs
-                        if len(all_fs) > 1:
-                            entry.multi_fs_warning = True
-                            multi_fs_warnings_count += 1
-                        if (not entry.detected_fs or entry.detected_fs == "Unknown") and all_fs:
-                            entry.detected_fs = all_fs[0]
-
-                        # Détection et extraction des métadonnées cryptographiques LUKS / BitLocker pour les partitions MBR
-                        try:
-                            from core.crypto_engine import EncryptedVolumeHandler
-                            h = EncryptedVolumeHandler(self.reader, entry.first_lba, entry.total_sectors)
-                            if h.is_encrypted:
-                                entry.detected_fs = f"{h.crypto_type} Encrypted Volume"
-                                entry.crypto_metadata = h.metadata
-                                if h.crypto_type not in all_fs:
-                                    all_fs.insert(0, h.crypto_type)
-                        except Exception:
-                            pass
-                    except Exception:
-                        entry.detected_fs = None
-                        entry.coexisting_filesystems = []
+                    self._enrich_partition_entry(entry)
+                    if entry.multi_fs_warning:
+                        multi_fs_warnings_count += 1
 
                 diag.partitions = mbr_partitions
                 if multi_fs_warnings_count > 0:

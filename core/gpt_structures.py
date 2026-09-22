@@ -104,6 +104,7 @@ class GPTPartitionEntry:
         self.is_mbr: bool = False
         self.mbr_type: int = 0
         self.crypto_metadata: Dict[str, Any] = {}
+        self.sub_volumes: List[Dict[str, Any]] = []
 
     @classmethod
     def parse(cls, data: bytes) -> Optional["GPTPartitionEntry"]:

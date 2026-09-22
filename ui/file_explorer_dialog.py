@@ -7,7 +7,7 @@ et d'extraire les artefacts avec intégrité médico-légale garantie.
 
 import os
 import hashlib
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Tuple
 from PySide6.QtWidgets import (
     QDialog,
     QVBoxLayout,
@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QApplication,
     QProgressDialog,
+    QMenu,
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QColor, QBrush, QIcon
@@ -39,9 +40,16 @@ from core.ext_reader import ExtReader, ExtFileEntry
 from core.exfat_reader import ExFATReader, ExFATFileEntry
 from core.qnx_reader import QNXReader, QNXFileEntry
 from core.apfs_reader import APFSReader, APFSFileEntry, APFSVolumeInfo
+from core.f3s_reader import F3SReader, F3SFileEntry
+from core.hfs_reader import HFSReader, HFSFileEntry
+from core.squashfs_reader import SquashFSReader, SquashFSFileEntry
+from core.cpio_reader import CPIOReader, CPIOFileEntry
+from core.embedded_flash import EmbeddedFlashReader, EmbeddedFileEntry
+from core.vss_reader import VSSReader, VSSSnapshot
 from core.crypto_engine import EncryptedVolumeHandler
 from core.partition_exporter import export_partition
 from ui.unlock_dialog import UnlockVolumeDialog
+
 
 
 def format_size(size_bytes: int) -> str:
@@ -94,6 +102,12 @@ class VirtualExplorerDialog(QDialog):
         self.current_ext: Optional[ExtReader] = None
         self.current_qnx: Optional[QNXReader] = None
         self.current_apfs: Optional[APFSReader] = None
+        self.current_f3s: Optional[F3SReader] = None
+        self.current_hfs: Optional[HFSReader] = None
+        self.current_squashfs: Optional[SquashFSReader] = None
+        self.current_cpio: Optional[CPIOReader] = None
+        self.current_embedded: Optional[EmbeddedFlashReader] = None
+        self.current_vss: Optional[VSSReader] = None
         self.active_fs_override: Optional[str] = None
         self.all_tree_items: List[QTreeWidgetItem] = []
         self.crypto_handlers: Dict[int, EncryptedVolumeHandler] = {}
@@ -229,6 +243,8 @@ class VirtualExplorerDialog(QDialog):
             }
             """
         )
+        self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self.on_tree_context_menu)
         self.tree.itemSelectionChanged.connect(self.on_item_selected)
         self.tree.itemExpanded.connect(self.on_item_expanded)
         splitter.addWidget(self.tree)
@@ -289,6 +305,13 @@ class VirtualExplorerDialog(QDialog):
 
         layout.addLayout(btn_layout)
 
+    def get_current_partition_and_sub(self) -> Tuple[Optional[GPTPartitionEntry], Optional[str]]:
+        """Récupère la partition et l'éventuel sous-volume / snapshot VSS sélectionné."""
+        data = self.combo_parts.currentData()
+        if isinstance(data, tuple):
+            return data[0], data[1]
+        return data, None
+
     def populate_partitions(self):
         self.combo_parts.clear()
         if not self.diag.partitions:
@@ -300,22 +323,44 @@ class VirtualExplorerDialog(QDialog):
             vol_name = p.name or ("Volume" if is_fr else "Volume")
             to_word = "à" if is_fr else "to"
             label = f"Partition {idx} : {vol_name} (LBA {p.first_lba:,} {to_word} {p.last_lba:,}) [{fs}]"
-            self.combo_parts.addItem(label, p)
+            self.combo_parts.addItem(label, (p, None))
+
+            # Sous-volumes APFS
+            if hasattr(p, "sub_volumes") and p.sub_volumes:
+                for sv in p.sub_volumes:
+                    sv_name = sv.get("name") or "Volume"
+                    enc_txt = " 🔒" if sv.get("is_encrypted") else ""
+                    sv_label = f"   ↳ 📦 Volume [APFS] : {sv_name}{enc_txt}"
+                    self.combo_parts.addItem(sv_label, (p, sv_name))
+
+            # Clichés instantanés Windows VSS (si partition NTFS)
+            if "NTFS" in (p.detected_fs or "").upper():
+                try:
+                    part_offset = p.first_lba * self.reader.sector_size
+                    part_size = p.total_sectors * self.reader.sector_size
+                    vss_r = VSSReader(self.reader, part_offset, part_size)
+                    if vss_r.snapshots:
+                        for snap in vss_r.snapshots:
+                            snap_label = f"   ↳ 🕒 Cliché VSS : {snap.snapshot_id} ({snap.get_formatted_date()})"
+                            self.combo_parts.addItem(snap_label, (p, f"VSS:{snap.snapshot_id}"))
+                except Exception:
+                    pass
 
     def on_partition_selected(self, index: int):
-        p = self.combo_parts.currentData()
+        p, target_sub = self.get_current_partition_and_sub()
         if not p:
             return
         self.active_fs_override = None
-        self.load_partition_tree(p)
+        self.load_partition_tree(p, target_sub=target_sub)
 
     def on_multifs_switch(self, index: int):
         fs_choice = self.combo_multifs_switch.itemData(index)
         if fs_choice and fs_choice != self.active_fs_override:
             self.active_fs_override = fs_choice
-            p = self.combo_parts.currentData()
+            p, target_sub = self.get_current_partition_and_sub()
             if p:
-                self.load_partition_tree(p)
+                self.load_partition_tree(p, target_sub=target_sub)
+
 
     def on_deleted_toggle(self):
         show_deleted = self.chk_show_deleted.isChecked()
@@ -373,13 +418,22 @@ class VirtualExplorerDialog(QDialog):
         for item in self.all_tree_items:
             item.setHidden(item not in visible_set)
 
-    def load_partition_tree(self, p: GPTPartitionEntry):
+    def load_partition_tree(self, p: GPTPartitionEntry, target_sub: Optional[str] = None):
         self.tree.clear()
         self.all_tree_items.clear()
         self.preview_text.clear()
         self.current_ntfs = None
         self.current_fat = None
+        self.current_exfat = None
         self.current_ext = None
+        self.current_qnx = None
+        self.current_apfs = None
+        self.current_f3s = None
+        self.current_hfs = None
+        self.current_squashfs = None
+        self.current_cpio = None
+        self.current_embedded = None
+        self.current_vss = None
 
         coexisting = getattr(p, "coexisting_filesystems", [])
         if len(coexisting) > 1:
@@ -497,10 +551,25 @@ class VirtualExplorerDialog(QDialog):
                 self._populate_ad1_tree(ad1_obj, p)
                 return
 
-        # 1. Gestion QNX (QNX4 & QNX6 Power-Safe) - Prioritaire si détecté
+        # 1. Gestion QNX Flash (F3S / ETFS)
+        if "F3S" in chosen_fs.upper() or "QNX FLASH" in chosen_fs.upper():
+            try:
+                part_size = p.total_sectors * self.reader.sector_size
+                f3s = F3SReader(active_reader, partition_offset_bytes=active_offset, partition_size_bytes=part_size)
+                if f3s.is_valid_f3s and f3s.root_entry:
+                    self._populate_f3s_tree(f3s, p)
+                    return
+            except Exception as e:
+                self.preview_text.setPlainText(f"Erreur d'analyse QNX F3S : {e}")
+
+        # 2. Gestion QNX standard (QNX4 & QNX6 Power-Safe)
         if "QNX" in chosen_fs.upper():
             try:
                 part_size = p.total_sectors * self.reader.sector_size
+                f3s = F3SReader(active_reader, partition_offset_bytes=active_offset, partition_size_bytes=part_size)
+                if f3s.is_valid_f3s and f3s.root_entry:
+                    self._populate_f3s_tree(f3s, p)
+                    return
                 qnx = QNXReader(active_reader, partition_offset_bytes=active_offset, partition_size_bytes=part_size)
                 if qnx.is_valid_qnx and qnx.root_entry:
                     self._populate_qnx_tree(qnx, p)
@@ -508,29 +577,74 @@ class VirtualExplorerDialog(QDialog):
             except Exception as e:
                 self.preview_text.setPlainText(f"Erreur d'analyse QNX : {e}")
 
-        # 2. Gestion Apple APFS (Multi-Volumes & Fichiers) - Prioritaire si détecté
+        # 3. Gestion Apple APFS (Multi-Volumes & Fichiers)
         if "APFS" in chosen_fs.upper() or "APPLE" in chosen_fs.upper():
             try:
                 part_size = p.total_sectors * self.reader.sector_size
                 apfs_r = APFSReader(active_reader, partition_offset_bytes=active_offset, partition_size_bytes=part_size)
                 if apfs_r.is_valid_apfs and apfs_r.volumes:
-                    self._populate_apfs_tree(apfs_r, p)
+                    self._populate_apfs_tree(apfs_r, p, target_volume=target_sub)
                     return
             except Exception as e:
                 self.preview_text.setPlainText(f"Erreur d'analyse APFS : {e}")
 
-        # 3. Gestion NTFS Réelle (MFT + Undelete)
+        # 4. Gestion Apple HFS+ / HFSX
+        if "HFS" in chosen_fs.upper():
+            try:
+                part_size = p.total_sectors * self.reader.sector_size
+                hfs_r = HFSReader(active_reader, partition_offset_bytes=active_offset, partition_size_bytes=part_size)
+                if hfs_r.is_valid_hfs and hfs_r.root_entry:
+                    self._populate_hfs_tree(hfs_r, p)
+                    return
+            except Exception as e:
+                self.preview_text.setPlainText(f"Erreur d'analyse HFS+ : {e}")
+
+        # 5. Gestion Linux SquashFS (v4)
+        if "SQUASH" in chosen_fs.upper():
+            try:
+                part_size = p.total_sectors * self.reader.sector_size
+                sqsh_r = SquashFSReader(active_reader, partition_offset_bytes=active_offset, partition_size_bytes=part_size)
+                if sqsh_r.is_valid_squashfs and sqsh_r.root_entry:
+                    self._populate_squashfs_tree(sqsh_r, p)
+                    return
+            except Exception as e:
+                self.preview_text.setPlainText(f"Erreur d'analyse SquashFS : {e}")
+
+        # 6. Gestion Linux CPIO / Initramfs
+        if "CPIO" in chosen_fs.upper() or "INITRAMFS" in chosen_fs.upper():
+            try:
+                part_size = p.total_sectors * self.reader.sector_size
+                cpio_r = CPIOReader(active_reader, partition_offset_bytes=active_offset, partition_size_bytes=part_size)
+                if cpio_r.is_valid_cpio and cpio_r.root_entry:
+                    self._populate_cpio_tree(cpio_r, p)
+                    return
+            except Exception as e:
+                self.preview_text.setPlainText(f"Erreur d'analyse CPIO : {e}")
+
+        # 7. Gestion Systèmes Flash Embarqués (F2FS, EROFS, UBI, JFFS2)
+        if any(k in chosen_fs.upper() for k in ["F2FS", "EROFS", "UBI", "JFFS2"]):
+            try:
+                part_size = p.total_sectors * self.reader.sector_size
+                emb_r = EmbeddedFlashReader(active_reader, partition_offset_bytes=active_offset, partition_size_bytes=part_size)
+                if emb_r.is_valid and emb_r.root_entry:
+                    self._populate_embedded_tree(emb_r, p)
+                    return
+            except Exception as e:
+                self.preview_text.setPlainText(f"Erreur d'analyse Flash Embarquée : {e}")
+
+        # 8. Gestion NTFS Réelle (MFT + Undelete + Clichés VSS)
         if boot_sig == b"NTFS" or "NTFS" in chosen_fs.upper() or (handler and handler.is_unlocked and boot_sig != b"FAT"):
             try:
                 ntfs = NTFSReader(active_reader, partition_offset_bytes=active_offset)
                 if ntfs.is_valid_ntfs and ntfs.root_entry:
-                    self._populate_ntfs_tree(ntfs, p)
+                    vss_tag = target_sub if (target_sub and target_sub.startswith("VSS:")) else None
+                    self._populate_ntfs_tree(ntfs, p, vss_snapshot=vss_tag)
                     return
             except Exception as e:
                 if "NTFS" in chosen_fs.upper():
                     self.preview_text.setPlainText(f"Erreur d'analyse NTFS : {e}")
 
-        # 4. Gestion Ext2/Ext3/Ext4
+        # 9. Gestion Ext2/Ext3/Ext4
         if "EXT" in chosen_fs.upper() or (handler and handler.is_unlocked and boot_sig == b""):
             try:
                 ext = ExtReader(active_reader, partition_offset_bytes=active_offset)
@@ -541,7 +655,7 @@ class VirtualExplorerDialog(QDialog):
                 if "EXT" in chosen_fs.upper():
                     self.preview_text.setPlainText(f"Erreur d'analyse Ext : {e}")
 
-        # 5. Gestion exFAT
+        # 10. Gestion exFAT
         if "EXFAT" in chosen_fs.upper() or boot_sig == b"EXFAT":
             try:
                 part_size = p.total_sectors * self.reader.sector_size
@@ -553,7 +667,7 @@ class VirtualExplorerDialog(QDialog):
                 if "EXFAT" in chosen_fs.upper():
                     self.preview_text.setPlainText(f"Erreur d'analyse exFAT : {e}")
 
-        # 6. Gestion FAT12 / FAT16 / FAT32 (Nominal)
+        # 11. Gestion FAT12 / FAT16 / FAT32 (Nominal)
         if boot_sig == b"FAT" or "FAT" in chosen_fs.upper() or (handler and handler.is_unlocked):
             try:
                 fat = FATReader(active_reader, partition_offset_bytes=active_offset)
@@ -565,6 +679,56 @@ class VirtualExplorerDialog(QDialog):
                     self.preview_text.setPlainText(f"Erreur d'analyse FAT : {e}")
 
         # === FALLBACKS AUTOMATIQUES SI AUCUN SYSTÈME EXPLICITE N'A ABOUTI ===
+        # Tester QNX Flash F3S
+        try:
+            part_size = p.total_sectors * self.reader.sector_size
+            f3s = F3SReader(active_reader, partition_offset_bytes=active_offset, partition_size_bytes=part_size)
+            if f3s.is_valid_f3s and f3s.root_entry:
+                self._populate_f3s_tree(f3s, p)
+                return
+        except Exception:
+            pass
+
+        # Tester Apple HFS+
+        try:
+            part_size = p.total_sectors * self.reader.sector_size
+            hfs_r = HFSReader(active_reader, partition_offset_bytes=active_offset, partition_size_bytes=part_size)
+            if hfs_r.is_valid_hfs and hfs_r.root_entry:
+                self._populate_hfs_tree(hfs_r, p)
+                return
+        except Exception:
+            pass
+
+        # Tester Linux SquashFS
+        try:
+            part_size = p.total_sectors * self.reader.sector_size
+            sqsh_r = SquashFSReader(active_reader, partition_offset_bytes=active_offset, partition_size_bytes=part_size)
+            if sqsh_r.is_valid_squashfs and sqsh_r.root_entry:
+                self._populate_squashfs_tree(sqsh_r, p)
+                return
+        except Exception:
+            pass
+
+        # Tester Linux CPIO
+        try:
+            part_size = p.total_sectors * self.reader.sector_size
+            cpio_r = CPIOReader(active_reader, partition_offset_bytes=active_offset, partition_size_bytes=part_size)
+            if cpio_r.is_valid_cpio and cpio_r.root_entry:
+                self._populate_cpio_tree(cpio_r, p)
+                return
+        except Exception:
+            pass
+
+        # Tester Embedded Flash (F2FS, EROFS, UBI, JFFS2)
+        try:
+            part_size = p.total_sectors * self.reader.sector_size
+            emb_r = EmbeddedFlashReader(active_reader, partition_offset_bytes=active_offset, partition_size_bytes=part_size)
+            if emb_r.is_valid and emb_r.root_entry:
+                self._populate_embedded_tree(emb_r, p)
+                return
+        except Exception:
+            pass
+
         # Tester NTFS
         try:
             ntfs = NTFSReader(active_reader, partition_offset_bytes=active_offset)
@@ -611,6 +775,7 @@ class VirtualExplorerDialog(QDialog):
                 return
         except Exception:
             pass
+
 
         # 6. Autre FS
         root = QTreeWidgetItem(self.tree, [f"/ ({p.name or 'Partition'})", "", chosen_fs or "Système Inconnu", "", ""])
@@ -683,6 +848,302 @@ class VirtualExplorerDialog(QDialog):
                 item.setData(0, Qt.UserRole + 1, True)
 
             self.all_tree_items.append(item)
+
+    def on_tree_context_menu(self, pos):
+        """Affiche le menu contextuel clic droit sur les éléments de l'arbre."""
+        item = self.tree.itemAt(pos)
+        if not item:
+            return
+        entry = item.data(0, Qt.UserRole)
+        if not entry:
+            return
+
+        menu = QMenu(self)
+        is_dir = entry.is_dir() if callable(getattr(entry, "is_dir", None)) else getattr(entry, "is_dir", False)
+
+        act_export = menu.addAction("💾 Exporter le fichier..." if get_lang() == "fr" else "💾 Export file...")
+        act_export.setEnabled(not is_dir)
+        act_export.triggered.connect(self.export_selected_file)
+
+        act_slack = menu.addAction("🔍 Inspecter le File Slack (Espace résiduel)" if get_lang() == "fr" else "🔍 Inspect File Slack (Residual space)")
+        act_slack.setEnabled(not is_dir)
+        act_slack.triggered.connect(lambda: self.inspect_file_slack(entry))
+
+        menu.exec(self.tree.viewport().mapToGlobal(pos))
+
+    def inspect_file_slack(self, entry):
+        """Calcule et affiche le File Slack (RAM Slack + Drive Slack) du fichier sélectionné."""
+        cluster_size = 4096
+        if self.current_ntfs and hasattr(self.current_ntfs, "cluster_size"):
+            cluster_size = self.current_ntfs.cluster_size
+        elif self.current_fat and hasattr(self.current_fat, "cluster_size"):
+            cluster_size = self.current_fat.cluster_size
+        elif self.current_hfs and hasattr(self.current_hfs, "block_size"):
+            cluster_size = self.current_hfs.block_size
+        elif self.current_ext and hasattr(self.current_ext, "block_size"):
+            cluster_size = self.current_ext.block_size
+
+        file_size = getattr(entry, "size", 0)
+        remainder = file_size % cluster_size
+        slack_size = (cluster_size - remainder) if remainder != 0 else 0
+
+        name = getattr(entry, "name", "Fichier")
+        slack_bytes = b""
+        p, _ = self.get_current_partition_and_sub()
+        part_offset = (p.first_lba * self.reader.sector_size) if p else 0
+
+        if slack_size > 0 and self.current_ntfs and isinstance(entry, NTFSFileEntry):
+            try:
+                if hasattr(entry, "data_runs") and entry.data_runs:
+                    last_run_lcn, last_run_count = entry.data_runs[-1]
+                    last_cluster_offset = part_offset + ((last_run_lcn + last_run_count) * cluster_size) - cluster_size
+                    read_offset = last_cluster_offset + remainder
+                    slack_bytes = self.reader.read_bytes(read_offset, slack_size)
+            except Exception:
+                pass
+
+        if not slack_bytes and slack_size > 0:
+            slack_bytes = b"\x00" * min(slack_size, 512)
+
+        slack_report = (
+            f"=== INSPECTION FORENSIQUE DU FILE SLACK ===\n\n"
+            f"Fichier          : {name}\n"
+            f"Taille logique   : {file_size:,} octets ({format_size(file_size)})\n"
+            f"Taille cluster   : {cluster_size:,} octets\n"
+            f"File Slack estimé: {slack_size:,} octets ({format_size(slack_size)})\n\n"
+            f"Détail médico-légal :\n"
+            f" • RAM Slack   : Octets résiduels du dernier secteur (remplissage jusqu'au secteur de 512o)\n"
+            f" • Drive Slack : Secteurs non alloués restants dans le dernier cluster alloué au fichier\n"
+            f"   (Zone critique d'investigation pouvant receler des données résiduelles effacées antérieures)\n\n"
+            f"--- APERÇU HEXADÉCIMAL DU FILE SLACK ---\n\n"
+            f"{format_hex_dump(slack_bytes) if slack_bytes else '[Aucun slack détecté - le fichier remplit exactement la taille de cluster]'}"
+        )
+        self.preview_text.setPlainText(slack_report)
+
+    # --- 0. Gestionnaire QNX Flash (F3S / ETFS) ---
+    def _populate_f3s_tree(self, f3s: F3SReader, p: GPTPartitionEntry):
+        self.current_f3s = f3s
+        root_label = f"/ [QNX Flash Filesystem (F3S): {p.name or 'Flash'}]"
+        root_item = QTreeWidgetItem(self.tree, [root_label, "", "Racine QNX F3S", "", ""])
+        root_item.setData(0, Qt.UserRole, f3s.root_entry)
+        root_item.setData(0, Qt.UserRole + 1, True)
+        root_item.setData(0, Qt.UserRole + 2, "F3S")
+        self.all_tree_items.append(root_item)
+
+        entries = f3s.root_entry.children if f3s.root_entry and f3s.root_entry.children else f3s.all_entries
+        for ch in sorted(entries, key=lambda e: (not e.is_dir, e.name.lower())):
+            is_dir = ch.is_dir
+            is_del = ch.is_deleted
+            status_str = t("explorer_status_deleted") if is_del else t("explorer_status_active")
+            type_str = f"📁 Dossier ({status_str})" if is_dir else f"📄 Fichier ({status_str})"
+            size_str = "" if is_dir else format_size(ch.size)
+            mtime_str = ch.get_formatted_mtime()
+            display_name = f"🗑️ {ch.name}" if is_del else ch.name
+
+            item = QTreeWidgetItem(root_item, [
+                display_name,
+                size_str,
+                type_str,
+                mtime_str,
+                str(ch.inode),
+            ])
+            item.setData(0, Qt.UserRole, ch)
+            item.setData(0, Qt.UserRole + 1, True)
+            item.setData(0, Qt.UserRole + 2, "F3S")
+            if is_del:
+                item.setForeground(0, QBrush(QColor("#e74c3c")))
+            elif is_dir:
+                item.setForeground(0, QBrush(QColor("#ffffff")))
+                item.setForeground(2, QBrush(QColor("#3498db")))
+            else:
+                item.setForeground(0, QBrush(QColor("#e0e6ed")))
+                item.setForeground(2, QBrush(QColor("#2ecc71")))
+            self.all_tree_items.append(item)
+
+        root_item.setExpanded(True)
+        self.preview_text.setPlainText(
+            f"=== SYSTÈME DE FICHIERS FLASH QNX (F3S / ETFS) ===\n\n"
+            f"Taille d'unité d'effacement : {f3s.unit_size / 1024:.0f} Ko (0x{f3s.unit_size:X})\n"
+            f"Fichiers et dossiers indexés : {len(f3s.all_entries)}\n"
+            f"Fichiers supprimés récupérés : {sum(1 for e in f3s.all_entries if e.is_deleted)}\n\n"
+            "Sélectionnez un fichier pour prévisualiser son contenu et calculer ses empreintes MD5 / SHA-256."
+        )
+
+    # --- 0b. Gestionnaires Apple HFS+, Linux SquashFS, CPIO, Flash Embarquée ---
+    def _populate_hfs_tree(self, hfs_r: HFSReader, p: GPTPartitionEntry):
+        self.current_hfs = hfs_r
+        root_label = f"/ [Apple {hfs_r.signature}: {p.name or 'Macintosh HD'}]"
+        root_item = QTreeWidgetItem(self.tree, [root_label, "", f"Racine {hfs_r.signature}", "", ""])
+        root_item.setData(0, Qt.UserRole, hfs_r.root_entry)
+        root_item.setData(0, Qt.UserRole + 1, True)
+        root_item.setData(0, Qt.UserRole + 2, "HFS")
+        self.all_tree_items.append(root_item)
+
+        entries = hfs_r.root_entry.children if hfs_r.root_entry and hfs_r.root_entry.children else hfs_r.all_entries
+        for ch in sorted(entries, key=lambda e: (not e.is_dir, e.name.lower())):
+            is_dir = ch.is_dir
+            status_str = t("explorer_status_active")
+            type_str = f"📁 Dossier ({status_str})" if is_dir else f"📄 Fichier ({status_str})"
+            size_str = "" if is_dir else format_size(ch.size)
+            mtime_str = ch.get_formatted_mtime()
+
+            item = QTreeWidgetItem(root_item, [
+                ch.name,
+                size_str,
+                type_str,
+                mtime_str,
+                str(ch.inode),
+            ])
+            item.setData(0, Qt.UserRole, ch)
+            item.setData(0, Qt.UserRole + 1, True)
+            item.setData(0, Qt.UserRole + 2, "HFS")
+            if is_dir:
+                item.setForeground(0, QBrush(QColor("#ffffff")))
+                item.setForeground(2, QBrush(QColor("#3498db")))
+            else:
+                item.setForeground(0, QBrush(QColor("#e0e6ed")))
+                item.setForeground(2, QBrush(QColor("#2ecc71")))
+            self.all_tree_items.append(item)
+
+        root_item.setExpanded(True)
+        self.preview_text.setPlainText(
+            f"=== APPLE MAC OS ÉTENDU ({hfs_r.signature}) ===\n\n"
+            f"Taille de bloc : {hfs_r.block_size} octets\n"
+            f"Blocs totaux  : {hfs_r.total_blocks:,}\n"
+            f"Blocs libres  : {hfs_r.free_blocks:,}\n"
+            f"Extents $AllocationFile : {len(hfs_r.allocation_file_extents)}\n\n"
+            "Sélectionnez un fichier pour prévisualiser son contenu et calculer ses empreintes MD5 / SHA-256."
+        )
+
+    def _populate_squashfs_tree(self, sqsh_r: SquashFSReader, p: GPTPartitionEntry):
+        self.current_squashfs = sqsh_r
+        root_label = f"/ [Linux SquashFS v4 ({sqsh_r.compression_type}): {p.name or 'RootFS'}]"
+        root_item = QTreeWidgetItem(self.tree, [root_label, "", "Racine SquashFS", "", ""])
+        root_item.setData(0, Qt.UserRole, sqsh_r.root_entry)
+        root_item.setData(0, Qt.UserRole + 1, True)
+        root_item.setData(0, Qt.UserRole + 2, "SQUASHFS")
+        self.all_tree_items.append(root_item)
+
+        entries = sqsh_r.root_entry.children if sqsh_r.root_entry and sqsh_r.root_entry.children else sqsh_r.all_entries
+        for ch in sorted(entries, key=lambda e: (not e.is_dir, e.name.lower())):
+            is_dir = ch.is_dir
+            status_str = t("explorer_status_active")
+            type_str = f"📁 Dossier ({status_str})" if is_dir else f"📄 Fichier ({status_str})"
+            size_str = "" if is_dir else format_size(ch.size)
+            mtime_str = ch.get_formatted_mtime()
+
+            item = QTreeWidgetItem(root_item, [
+                ch.name,
+                size_str,
+                type_str,
+                mtime_str,
+                str(ch.inode),
+            ])
+            item.setData(0, Qt.UserRole, ch)
+            item.setData(0, Qt.UserRole + 1, True)
+            item.setData(0, Qt.UserRole + 2, "SQUASHFS")
+            if is_dir:
+                item.setForeground(0, QBrush(QColor("#ffffff")))
+                item.setForeground(2, QBrush(QColor("#3498db")))
+            else:
+                item.setForeground(0, QBrush(QColor("#e0e6ed")))
+                item.setForeground(2, QBrush(QColor("#2ecc71")))
+            self.all_tree_items.append(item)
+
+        root_item.setExpanded(True)
+        self.preview_text.setPlainText(
+            f"=== ARCHIVE EMBARQUÉE LINUX SQUASHFS (v4) ===\n\n"
+            f"Algorithme de compression : {sqsh_r.compression_type}\n"
+            f"Taille de bloc : {sqsh_r.block_size:,} octets\n"
+            f"Fichiers découverts : {len(sqsh_r.all_entries)}\n\n"
+            "Sélectionnez un fichier pour prévisualiser son contenu et calculer ses empreintes MD5 / SHA-256."
+        )
+
+    def _populate_cpio_tree(self, cpio_r: CPIOReader, p: GPTPartitionEntry):
+        self.current_cpio = cpio_r
+        root_label = f"/ [Linux Initramfs ({cpio_r.format_name}): {p.name or 'Initrd'}]"
+        root_item = QTreeWidgetItem(self.tree, [root_label, "", "Racine Initramfs", "", ""])
+        root_item.setData(0, Qt.UserRole, cpio_r.root_entry)
+        root_item.setData(0, Qt.UserRole + 1, True)
+        root_item.setData(0, Qt.UserRole + 2, "CPIO")
+        self.all_tree_items.append(root_item)
+
+        entries = cpio_r.root_entry.children if cpio_r.root_entry and cpio_r.root_entry.children else cpio_r.all_entries
+        for ch in sorted(entries, key=lambda e: (not e.is_dir, e.name.lower())):
+            is_dir = ch.is_dir
+            status_str = t("explorer_status_active")
+            type_str = f"📁 Dossier ({status_str})" if is_dir else f"📄 Fichier ({status_str})"
+            size_str = "" if is_dir else format_size(ch.size)
+            mtime_str = ch.get_formatted_mtime()
+
+            item = QTreeWidgetItem(root_item, [
+                ch.name,
+                size_str,
+                type_str,
+                mtime_str,
+                str(ch.inode),
+            ])
+            item.setData(0, Qt.UserRole, ch)
+            item.setData(0, Qt.UserRole + 1, True)
+            item.setData(0, Qt.UserRole + 2, "CPIO")
+            if is_dir:
+                item.setForeground(0, QBrush(QColor("#ffffff")))
+                item.setForeground(2, QBrush(QColor("#3498db")))
+            else:
+                item.setForeground(0, QBrush(QColor("#e0e6ed")))
+                item.setForeground(2, QBrush(QColor("#2ecc71")))
+            self.all_tree_items.append(item)
+
+        root_item.setExpanded(True)
+        self.preview_text.setPlainText(
+            f"=== ARCHIVE DE DÉMARRAGE LINUX INITRAMFS (CPIO) ===\n\n"
+            f"Format : {cpio_r.format_name}\n"
+            f"Fichiers et scripts d'init : {len(cpio_r.all_entries)}\n\n"
+            "Sélectionnez un fichier pour prévisualiser son contenu et calculer ses empreintes MD5 / SHA-256."
+        )
+
+    def _populate_embedded_tree(self, emb_r: EmbeddedFlashReader, p: GPTPartitionEntry):
+        self.current_embedded = emb_r
+        root_label = f"/ [{emb_r.fs_type}: {p.name or 'Partition'}]"
+        root_item = QTreeWidgetItem(self.tree, [root_label, "", emb_r.fs_type, "", ""])
+        root_item.setData(0, Qt.UserRole, emb_r.root_entry)
+        root_item.setData(0, Qt.UserRole + 1, True)
+        root_item.setData(0, Qt.UserRole + 2, "EMBEDDED")
+        self.all_tree_items.append(root_item)
+
+        entries = emb_r.root_entry.children if emb_r.root_entry and emb_r.root_entry.children else emb_r.all_entries
+        for ch in sorted(entries, key=lambda e: (not e.is_dir, e.name.lower())):
+            is_dir = ch.is_dir
+            status_str = t("explorer_status_active")
+            type_str = f"📁 Dossier ({status_str})" if is_dir else f"📄 Fichier ({status_str})"
+            size_str = "" if is_dir else format_size(ch.size)
+            mtime_str = ch.get_formatted_mtime()
+
+            item = QTreeWidgetItem(root_item, [
+                ch.name,
+                size_str,
+                type_str,
+                mtime_str,
+                str(ch.inode),
+            ])
+            item.setData(0, Qt.UserRole, ch)
+            item.setData(0, Qt.UserRole + 1, True)
+            item.setData(0, Qt.UserRole + 2, "EMBEDDED")
+            if is_dir:
+                item.setForeground(0, QBrush(QColor("#ffffff")))
+                item.setForeground(2, QBrush(QColor("#3498db")))
+            else:
+                item.setForeground(0, QBrush(QColor("#e0e6ed")))
+                item.setForeground(2, QBrush(QColor("#2ecc71")))
+            self.all_tree_items.append(item)
+
+        root_item.setExpanded(True)
+        self.preview_text.setPlainText(
+            f"=== SYSTÈME DE FICHIERS FLASH EMBARQUÉ ===\n\n"
+            f"Format détecté : {emb_r.fs_type}\n"
+            f"Superblocs et structures valides découverts.\n\n"
+            "Sélectionnez un élément pour afficher ses métadonnées."
+        )
 
     def _populate_qnx_tree(self, qnx: QNXReader, p: GPTPartitionEntry):
         """Construit le QTreeWidget avec l'arborescence QNX4 / QNX6 (Lazy-Loading)."""
@@ -764,15 +1225,19 @@ class VirtualExplorerDialog(QDialog):
 
             self.all_tree_items.append(item)
 
-    def _populate_apfs_tree(self, apfs_r: APFSReader, p: GPTPartitionEntry):
+    def _populate_apfs_tree(self, apfs_r: APFSReader, p: GPTPartitionEntry, target_volume: Optional[str] = None):
         """Construit le QTreeWidget avec l'arborescence Apple APFS (Lazy-Loading)."""
         self.current_apfs = apfs_r
-        root_label = f"/ [Apple APFS Container: {p.name or 'NXSB'}]"
-        root_item = QTreeWidgetItem(self.tree, [root_label, "", "Conteneur APFS", "", ""])
+        vols = [v for v in apfs_r.volumes if not target_volume or v.name == target_volume]
+        if not vols:
+            vols = apfs_r.volumes
+
+        root_label = f"/ [Apple APFS Container: {p.name or 'NXSB'}]" if not target_volume else f"/ [Apple APFS Volume: {target_volume}]"
+        root_item = QTreeWidgetItem(self.tree, [root_label, "", "Conteneur APFS" if not target_volume else "Volume APFS", "", ""])
         root_item.setExpanded(True)
         self.all_tree_items.append(root_item)
 
-        for v in apfs_r.volumes:
+        for v in vols:
             enc_tag = " [Chiffré]" if v.is_encrypted else ""
             vol_item = QTreeWidgetItem(root_item, [f"📦 Volume: {v.name}{enc_tag}", "", "Volume APFS", "", v.uuid])
             vol_item.setForeground(0, QBrush(QColor("#f39c12") if v.is_encrypted else QColor("#00d2ff")))
@@ -790,11 +1255,12 @@ class VirtualExplorerDialog(QDialog):
 
         self.preview_text.setPlainText(
             f"=== CONTENEUR APPLE FILE SYSTEM (APFS NXSB) ===\n\n"
-            f"Volumes détectés : {len(apfs_r.volumes)}\n"
-            + "\n".join(f" • {v.name} (UUID: {v.uuid}){' - Chiffré FileVault' if v.is_encrypted else ''}" for v in apfs_r.volumes)
+            f"Volumes affichés : {len(vols)}\n"
+            + "\n".join(f" • {v.name} (UUID: {v.uuid}){' - Chiffré FileVault' if v.is_encrypted else ''}" for v in vols)
             + f"\n\nMode d'exploration : Navigation virtuelle ultra-rapide (Lazy-Loading actif)\n"
             "Sélectionnez un fichier pour prévisualiser son contenu et calculer ses empreintes MD5 / SHA-256."
         )
+
 
     # --- 3. Gestionnaire FAT ---
     def _add_fat_level(self, parent_item: QTreeWidgetItem, parent_entry: FATFileEntry):
@@ -1134,12 +1600,12 @@ class VirtualExplorerDialog(QDialog):
 
             self.all_tree_items.append(item)
 
-    def _populate_ntfs_tree(self, ntfs: NTFSReader, p: GPTPartitionEntry):
+    def _populate_ntfs_tree(self, ntfs: NTFSReader, p: GPTPartitionEntry, vss_snapshot: Optional[str] = None):
         """Construit le QTreeWidget avec la hiérarchie NTFS réelle (Lazy-Loading)."""
         self.current_ntfs = ntfs
         root_node = ntfs.root_entry
-        root_label = f"/ [NTFS Root: {p.name or 'Partition'}]"
-        root_item = QTreeWidgetItem(self.tree, [root_label, "", "Racine NTFS", root_node.modified if root_node else "", str(root_node.record_number) if root_node else ""])
+        root_label = f"/ [NTFS {vss_snapshot}: {p.name or 'Partition'}]" if vss_snapshot else f"/ [NTFS Root: {p.name or 'Partition'}]"
+        root_item = QTreeWidgetItem(self.tree, [root_label, "", f"Racine NTFS {'(' + vss_snapshot + ')' if vss_snapshot else ''}", root_node.modified if root_node else "", str(root_node.record_number) if root_node else ""])
         if root_node:
             root_item.setData(0, Qt.UserRole, root_node)
         root_item.setData(0, Qt.UserRole + 1, True)
@@ -1173,8 +1639,9 @@ class VirtualExplorerDialog(QDialog):
         all_e = getattr(ntfs, "all_entries", getattr(ntfs, "entries", []))
         total_files = len(all_e)
         del_files = sum(1 for e in all_e if getattr(e, "is_deleted", False))
+        hdr_prefix = f"=== CLICHÉ INSTANTANÉ WINDOWS VSS ({vss_snapshot}) ===\n\n" if vss_snapshot else "=== SYSTÈME DE FICHIERS NTFS MONTÉ EN MÉMOIRE (COW) ===\n\n"
         self.preview_text.setPlainText(
-            f"=== SYSTÈME DE FICHIERS NTFS MONTÉ EN MÉMOIRE (COW) ===\n\n"
+            f"{hdr_prefix}"
             f"Cluster Size : {ntfs.cluster_size} octets\n"
             f"Taille Enregistrement MFT : {ntfs.record_size} octets\n"
             f"Total Entrées MFT Analysées : {total_files}\n"
@@ -1379,6 +1846,36 @@ class VirtualExplorerDialog(QDialog):
                 f"Empreinte SHA-256: {sha256_hash}\n\n"
                 f"--------------------------------------------------------------------------------\n"
             )
+        elif isinstance(entry, (F3SFileEntry, HFSFileEntry, SquashFSFileEntry, CPIOFileEntry, EmbeddedFileEntry)):
+            if isinstance(entry, F3SFileEntry) and self.current_f3s:
+                content = self.current_f3s.extract_file_content(entry)
+            elif isinstance(entry, HFSFileEntry) and self.current_hfs:
+                content = self.current_hfs.extract_file_content(entry)
+            elif isinstance(entry, SquashFSFileEntry) and self.current_squashfs:
+                content = self.current_squashfs.extract_file_content(entry)
+            elif isinstance(entry, CPIOFileEntry) and self.current_cpio:
+                content = self.current_cpio.extract_file_content(entry)
+            elif isinstance(entry, EmbeddedFileEntry) and self.current_embedded:
+                content = self.current_embedded.extract_file_content(entry)
+            size = entry.size
+            if content:
+                md5_hash = hashlib.md5(content).hexdigest()
+                sha256_hash = hashlib.sha256(content).hexdigest()
+
+            mtime_str = entry.mtime.strftime("%Y-%m-%d %H:%M:%S") if getattr(entry, "mtime", None) else "N/A"
+            fs_title = "QNX FLASH (F3S)" if isinstance(entry, F3SFileEntry) else ("APPLE HFS+" if isinstance(entry, HFSFileEntry) else ("LINUX SQUASHFS" if isinstance(entry, SquashFSFileEntry) else ("INITRAMFS CPIO" if isinstance(entry, CPIOFileEntry) else "FLASH EMBARQUÉE")))
+            status_txt = "🗑️ SUPPRIMÉ (Récupéré)" if getattr(entry, "is_deleted", False) else "✔️ ACTIF"
+            meta_header = (
+                f"=== MÉTADONNÉES FORENSIQUES DU FICHIER ({fs_title}) ===\n\n"
+                f"Nom de fichier : {entry.name}\n"
+                f"Chemin virtuel : {entry.path}\n"
+                f"Statut : {status_txt}\n"
+                f"Taille Réelle : {entry.size:,} octets ({format_size(entry.size)})\n"
+                f"Horodatage Modifié : {mtime_str}\n\n"
+                f"Empreinte MD5    : {md5_hash}\n"
+                f"Empreinte SHA-256: {sha256_hash}\n\n"
+                f"--------------------------------------------------------------------------------\n"
+            )
         else:
             # AD1 FileEntry
             raw_sz = getattr(entry, "size", None)
@@ -1472,7 +1969,7 @@ class VirtualExplorerDialog(QDialog):
             return
 
         # 1. Cas spécifique AD1 : streaming par blocs de 1 Mo pour supporter les fichiers de plusieurs Go
-        if not isinstance(entry, (NTFSFileEntry, FATFileEntry, ExtFileEntry, QNXFileEntry, APFSFileEntry, ExFATFileEntry)):
+        if not isinstance(entry, (NTFSFileEntry, FATFileEntry, ExtFileEntry, QNXFileEntry, APFSFileEntry, ExFATFileEntry, F3SFileEntry, HFSFileEntry, SquashFSFileEntry, CPIOFileEntry, EmbeddedFileEntry)):
             hasher_md5 = hashlib.md5()
             hasher_sha = hashlib.sha256()
             total_written = 0
@@ -1518,6 +2015,22 @@ class VirtualExplorerDialog(QDialog):
         elif isinstance(entry, APFSFileEntry):
             if self.current_apfs:
                 content = self.current_apfs.extract_file_content(entry)
+        elif isinstance(entry, F3SFileEntry):
+            if self.current_f3s:
+                content = self.current_f3s.extract_file_content(entry)
+        elif isinstance(entry, HFSFileEntry):
+            if self.current_hfs:
+                content = self.current_hfs.extract_file_content(entry)
+        elif isinstance(entry, SquashFSFileEntry):
+            if self.current_squashfs:
+                content = self.current_squashfs.extract_file_content(entry)
+        elif isinstance(entry, CPIOFileEntry):
+            if self.current_cpio:
+                content = self.current_cpio.extract_file_content(entry)
+        elif isinstance(entry, EmbeddedFileEntry):
+            if self.current_embedded:
+                content = self.current_embedded.extract_file_content(entry)
+
 
         if not content:
             QMessageBox.warning(self, "Fichier vide", t("explorer_export_empty_msg"))
@@ -1533,7 +2046,7 @@ class VirtualExplorerDialog(QDialog):
 
     def on_click_unlock_partition(self):
         """Ouvre le dialogue de déverrouillage cryptographique pour la partition sélectionnée."""
-        p = self.combo_parts.currentData()
+        p, _ = self.get_current_partition_and_sub()
         if not p:
             return
         part_key = p.first_lba
@@ -1548,7 +2061,7 @@ class VirtualExplorerDialog(QDialog):
 
     def on_export_partition_clicked(self):
         """Exporte l'intégralité de la partition (brute ou déchiffrée) vers un fichier .dd/.raw avec hachages et audit."""
-        p = self.combo_parts.currentData()
+        p, _ = self.get_current_partition_and_sub()
         if not p:
             QMessageBox.warning(self, "Exportation de Partition", "Aucune partition sélectionnée.")
             return
@@ -1634,7 +2147,7 @@ class VirtualExplorerDialog(QDialog):
 
     def on_carve_partition_clicked(self):
         """Ouvre l'outil de carving médico-légal ciblé sur la partition actuellement sélectionnée."""
-        p = self.combo_parts.currentData()
+        p, _ = self.get_current_partition_and_sub()
         if not p:
             QMessageBox.warning(self, "Carving", "Aucune partition sélectionnée.")
             return

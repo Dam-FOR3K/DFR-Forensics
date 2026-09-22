@@ -2,7 +2,7 @@
 DFR-Forensics - Générateur de Whitepapers Techniques & Guides d'Architecture
 Produit une documentation forensique approfondie multi-pages (FR et EN)
 destinée aux analystes médico-légaux, ingénieurs en rétro-ingénierie et auditeurs.
-Auteur : Dam-FOR3K | Version : v2.7.3
+Auteur : Dam-FOR3K | Version : v2.8.0
 """
 
 import os
@@ -87,21 +87,21 @@ def create_styles():
         "DocSubtitle",
         parent=base["Normal"],
         fontName="Helvetica",
-        fontSize=12,
+        fontSize=11.5,
         leading=16,
         textColor=colors.HexColor("#0284c7"),
-        spaceAfter=14,
+        spaceAfter=12,
     )
 
     h1 = ParagraphStyle(
         "SectionH1",
         parent=base["Normal"],
         fontName="Helvetica-Bold",
-        fontSize=14,
-        leading=18,
+        fontSize=13,
+        leading=17,
         textColor=colors.HexColor("#0f172a"),
-        spaceBefore=16,
-        spaceAfter=8,
+        spaceBefore=14,
+        spaceAfter=7,
         keepWithNext=True,
     )
 
@@ -109,11 +109,11 @@ def create_styles():
         "SectionH2",
         parent=base["Normal"],
         fontName="Helvetica-Bold",
-        fontSize=11,
-        leading=15,
+        fontSize=10.5,
+        leading=14,
         textColor=colors.HexColor("#0369a1"),
-        spaceBefore=10,
-        spaceAfter=5,
+        spaceBefore=9,
+        spaceAfter=4,
         keepWithNext=True,
     )
 
@@ -121,10 +121,10 @@ def create_styles():
         "Body",
         parent=base["Normal"],
         fontName="Helvetica",
-        fontSize=9,
-        leading=13,
+        fontSize=8.5,
+        leading=12.5,
         textColor=colors.HexColor("#1e293b"),
-        spaceAfter=6,
+        spaceAfter=5,
     )
 
     bullet = ParagraphStyle(
@@ -132,7 +132,7 @@ def create_styles():
         parent=body,
         leftIndent=14,
         firstLineIndent=-10,
-        spaceAfter=4,
+        spaceAfter=3.5,
     )
 
     code = ParagraphStyle(
@@ -143,17 +143,17 @@ def create_styles():
         leading=10,
         textColor=colors.HexColor("#0f172a"),
         backColor=colors.HexColor("#f1f5f9"),
-        borderPadding=6,
-        spaceBefore=4,
-        spaceAfter=8,
+        borderPadding=5,
+        spaceBefore=3,
+        spaceAfter=6,
     )
 
     table_cell = ParagraphStyle(
         "TableCell",
         parent=base["Normal"],
         fontName="Helvetica",
-        fontSize=8,
-        leading=11,
+        fontSize=7.5,
+        leading=10.5,
         textColor=colors.HexColor("#1e293b"),
     )
 
@@ -161,8 +161,8 @@ def create_styles():
         "TableHeader",
         parent=base["Normal"],
         fontName="Helvetica-Bold",
-        fontSize=8,
-        leading=11,
+        fontSize=7.5,
+        leading=10.5,
         textColor=colors.white,
     )
 
@@ -191,13 +191,14 @@ def build_french_whitepaper(output_path: str):
     s = create_styles()
     story = []
 
-    story.append(Paragraph("DFR-FORENSICS", s["title"]))
-    story.append(Paragraph("Disk & File Resurrection : Guide d'Architecture & Manuel Forensique", s["subtitle"]))
+    # Title & Metadata
+    story.append(Paragraph("DFR-FORENSICS v2.8.0", s["title"]))
+    story.append(Paragraph("Disk & File Resurrection : Guide d'Architecture Forensique & Manuel Technique", s["subtitle"]))
 
     meta_table_data = [
         [
             Paragraph("<b>Auteur :</b> Dam-FOR3K", s["table_cell"]),
-            Paragraph("<b>Version :</b> v2.7.3", s["table_cell"]),
+            Paragraph("<b>Version :</b> v2.8.0", s["table_cell"]),
             Paragraph("<b>Date :</b> Septembre 2026", s["table_cell"]),
             Paragraph("<b>Licence :</b> MIT Open-Source", s["table_cell"]),
         ]
@@ -207,12 +208,13 @@ def build_french_whitepaper(output_path: str):
         ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8fafc")),
         ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#cbd5e1")),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
     story.append(t_meta)
-    story.append(Spacer(1, 12))
+    story.append(Spacer(1, 10))
 
+    # Section 1
     story.append(Paragraph("1. Problématique Médico-Légale & Philosophie Architecturale", s["h1"]))
     story.append(Paragraph(
         "Dans les contextes d'attaques cybernétiques modernes (ransomwares destructeurs, wipers industriels tels que "
@@ -224,13 +226,16 @@ def build_french_whitepaper(output_path: str):
         s["body"]
     ))
     story.append(Paragraph(
-        "<b>DFR-Forensics</b> (<i>Disk & File Resurrection</i>) a été conçu par <b>Dam-FOR3K</b> pour combler cette faille d'investigation en appliquant les principes directeurs suivants :",
+        "<b>DFR-Forensics</b> (<i>Disk & File Resurrection</i>) a été développé par <b>Dam-FOR3K</b> comme une suite médico-légale "
+        "autonome pur-Python de classe professionnelle, sans dépendance DLL fermée. Elle applique les paradigmes suivants :",
         s["body"]
     ))
-    story.append(Paragraph("• <b>Politique stricte de lecture seule (Zero-Write Policy)</b> : Aucune écriture n'est jamais effectuée sur le support d'origine. Les images brutes (RAW, DD, E01, AD1, AFF4) et les disques physiques (<i>\\\\.\\PhysicalDriveX</i>) sont ouverts avec des flags stricts en lecture seule.", s["bullet"]))
-    story.append(Paragraph("• <b>Architecture virtuelle Copy-On-Write (COW)</b> : Toutes les réparations de géométrie, déchiffrements de conteneurs et reconstructions de tables s'exécutent dans un calque virtuel en mémoire vive, permettant l'exploration dynamique sans altérer la preuve.", s["bullet"]))
+    story.append(Paragraph("• <b>Politique stricte de lecture seule (Zero-Write Policy)</b> : Aucune écriture n'est jamais effectuée sur le support d'origine. Les images brutes (RAW, DD, VMDK, VHD/VHDX, QCOW2, E01, AD1, AFF4, DMG) et les disques physiques (<i>\\\\.\\PhysicalDriveX</i>) sont ouverts avec des flags stricts en lecture seule.", s["bullet"]))
+    story.append(Paragraph("• <b>Architecture virtuelle Copy-On-Write (COW)</b> : Toutes les réparations de géométrie, déchiffrements de conteneurs (BitLocker, LUKS) et reconstructions de superblocs s'exécutent dans un calque virtuel en mémoire vive, garantissant la préservation absolue de la preuve.", s["bullet"]))
     story.append(Paragraph("• <b>Reconstruction mathématique par invariants</b> : Aucun décalage ni taille n'est figé. Le moteur recherche les invariants structurels (descripteurs de médias, relations de clusters, signatures magiques) pour recalculer la géométrie exacte même lorsque tous les en-têtes primaires sont anéantis.", s["bullet"]))
+    story.append(Paragraph("• <b>Exploration Virtuelle Universelle</b> : Accompagnée d'une interface graphique interactive et d'un CLI scriptable pour SOC/CSIRT, la plateforme unifie la visualisation spatiale, l'analyse d'entropie, l'inspection de slack space, la recherche brute et l'extraction de fichiers sur tous les écosystèmes (Windows, Linux, Apple, Embarqué Flash, Automotive).", s["bullet"]))
 
+    # Section 2
     story.append(Paragraph("2. Architecture Bas-Niveau des Tables de Partitionnement", s["h1"]))
     story.append(Paragraph("A. Master Boot Record (MBR) & Chaînes EBR", s["h2"]))
     story.append(Paragraph(
@@ -268,7 +273,9 @@ def build_french_whitepaper(output_path: str):
     ))
 
     story.append(PageBreak())
-    story.append(Paragraph("3. Systèmes de Fichiers & Algorithmes de Reconstruction Autonome", s["h1"]))
+
+    # Section 3
+    story.append(Paragraph("3. Moteurs de Systèmes de Fichiers Standards & Réparation Autonome", s["h1"]))
 
     story.append(Paragraph("A. Moteur FAT12 / FAT16 / FAT32 & Bascule Boot Sector de Secours", s["h2"]))
     story.append(Paragraph(
@@ -312,16 +319,106 @@ def build_french_whitepaper(output_path: str):
         s["body"]
     ))
 
-    story.append(Paragraph("E. Systèmes Embarqués, UNIX & Volumes Chiffrés", s["h2"]))
+    story.append(PageBreak())
+
+    # Section 4 (NEW v2.8.0)
+    story.append(Paragraph("4. Systèmes Embarqués, Mobiles & Flash Avancés (Nouveautés v2.8.0)", s["h1"]))
     story.append(Paragraph(
-        "• <b>QNX4 & QNX6 Power-Safe</b> : Analyse des systèmes automobiles et embarqués industriels via les superblocs <code>0x68191122</code> à LBA 8192 et 11776, arborescence d'inodes et journal de transactions.<br/>"
-        "• <b>Apple APFS</b> : Décodage du Container Superblock <code>NXSB</code>, parcours des B-Trees de l'Object Map (OMAP) et énumération des volumes chiffrés ou clairs.<br/>"
-        "• <b>BitLocker & LUKS1/2</b> : Extraction des métadonnées cryptographiques, calcul des dérivations PBKDF2 / Argon2id, et montage d'un flux virtuel déchiffré à la volée.",
+        "La version 2.8.0 introduit des moteurs natifs dédiés aux firmwares industriels, aux calculateurs automobiles (IVI/ECU), "
+        "aux systèmes mobiles et aux environnements Apple modernes :",
+        s["body"]
+    ))
+
+    story.append(Paragraph("A. QNX Flash Filesystem (F3S / ETFS) - Calculateurs Automobiles & IoT", s["h2"]))
+    story.append(Paragraph(
+        "Dans l'industrie automobile et aérospatiale (BlackBerry QNX Neutrino), les mémoires flash NOR/NAND brutes n'utilisent pas "
+        "de partitions traditionnelles mais le système <b>QNX F3S (Flash Filesystem v3)</b> ou <b>ETFS (Embedded Transaction FS)</b>. "
+        "L'espace physique est découpé en <i>Erase Units</i> (blocs d'effacement de 64 Ko, 128 Ko ou 256 Ko) :",
+        s["body"]
+    ))
+    story.append(Paragraph("• <b>En-têtes d'Erase Unit (magic <code>0x66</code>)</b> : Détection et validation des blocs de contrôle identifiant l'âge du bloc et l'état d'usure (wear leveling).", s["bullet"]))
+    story.append(Paragraph("• <b>En-têtes de Fichiers & Extents (magic <code>0x76</code>)</b> : Traversée séquentielle des enregistrements stockant les métadonnées (nom UTF-8, taille, UID/GID, permissions) et les pointeurs de données brutes.", s["bullet"]))
+    story.append(Paragraph("• <b>Reconstruction des Mises à Jour In-Place</b> : F3S écrivant les modifications dans de nouvelles unités sans écraser les anciennes, l'analyseur reconstitue la dernière version valide tout en offrant l'accès aux versions antérieures supprimées.", s["bullet"]))
+
+    story.append(Paragraph("B. Apple HFS+ / HFSX & Carving Bitmap $AllocationFile", s["h2"]))
+    story.append(Paragraph(
+        "Bien qu'APFS domine sur macOS récent, HFS+ (Hierarchical File System Plus) demeure omniprésent sur les disques externes, "
+        "sauvegardes Time Machine et matériels sous macOS hérité :",
+        s["body"]
+    ))
+    story.append(Paragraph("• <b>Volume Header à l'offset 1024 (magics <code>'H+' 0x482B</code> et <code>'HX' 0x4858</code>)</b> : Extraction de la taille de bloc d'allocation, du nombre total de blocs et des descripteurs d'extents des fichiers spéciaux de métadonnées.", s["bullet"]))
+    story.append(Paragraph("• <b>Arborescence B-Tree du Catalog File</b> : Décodage pur-Python de l'arbre B-Tree équilibré (nœuds d'en-tête, nœuds d'index et nœuds feuilles) associant chaque identifiant d'enregistrement de fichier (CNID) à ses forks de données et dates HFS UTC.", s["bullet"]))
+    story.append(Paragraph("• <b>Carving Ciblé via $AllocationFile</b> : Décodage du fichier spécial de bitmap d'allocation (1 bit = 1 bloc d'allocation). DFR-Forensics cartographie instantanément les plages de blocs non alloués pour restreindre le carving aux données effacées.", s["bullet"]))
+
+    story.append(Paragraph("C. Apple APFS (Apple File System) & Volumes Séparés", s["h2"]))
+    story.append(Paragraph(
+        "Dans l'architecture APFS, un conteneur physique unique (GUID <code>7C3457EF-0000-11AA-AA11-00306543ECAC</code>) regroupe "
+        "plusieurs volumes logiques indépendants (System, Data, Preboot, Recovery, VM) partageant dynamiquement le même espace libre :",
+        s["body"]
+    ))
+    story.append(Paragraph("• <b>Object Map (OMAP) & B-Trees d'Objets</b> : Décodage de l'arbre B-Tree virtuel traduisant les identifiants d'objets (OID) virtuels en adresses de blocs physiques (PBA).", s["bullet"]))
+    story.append(Paragraph("• <b>Découverte & Affichage Séparé des Sous-Volumes</b> : Dès la v2.8.0, chaque sous-volume APFS est identifié individuellement dans la table de partitions principale (en sous-lignes indentées) et dans l'explorateur de fichiers. L'analyste peut ainsi explorer isolément le volume système scellé en lecture seule et le volume utilisateur <i>Data</i>.", s["bullet"]))
+
+    story.append(Paragraph("D. Systèmes Linux Embarqués : SquashFS, CPIO, F2FS, EROFS, UBI/UBIFS", s["h2"]))
+    story.append(Paragraph(
+        "DFR-Forensics v2.8.0 intègre un ensemble de décodeurs pour les architectures embarquées et smartphones :",
+        s["body"]
+    ))
+    story.append(Paragraph("• <b>SquashFS v4 (magic <code>'hsqs' 0x73717368</code>)</b> : Système de fichiers compressé en lecture seule utilisé sur les box Internet, routeurs et IoT. Décompression native des tables d'inodes, blocs de données et fragments compressés (Zlib, LZ4, Zstandard, XZ).", s["bullet"]))
+    story.append(Paragraph("• <b>CPIO / Initramfs (format SVR4 portable <code>'070701'</code> et <code>'070702'</code> avec CRC)</b> : Décodage des images de démarrage initial Linux ramdisk, extraction des scripts d'init, modules kernel et binaires exécutables d'amorçage.", s["bullet"]))
+    story.append(Paragraph("• <b>F2FS (Flash-Friendly File System, magic <code>0xF2F52010</code>)</b> : Détection des superblocs aux offsets 1024 et 5120 octets, validation de la structure de checkpoints et des segments d'allocation sur smartphones Android modernes.", s["bullet"]))
+    story.append(Paragraph("• <b>EROFS (Enhanced Read-Only FS, magic <code>0xE0F5E1E2</code>)</b> : Détection du superbloc à l'offset 1024, exploration des inodes décompressés et métadonnées de partition système Android/Huawei.", s["bullet"]))
+    story.append(Paragraph("• <b>UBI / UBIFS (Unsorted Block Images)</b> : Détection des en-têtes d'Erase Counter (<code>'UBI#' 0x55424923</code>) et Volume ID (<code>'UBI!' 0x55424921</code>) sur mémoires flash industrielles non émulées.", s["bullet"]))
+
+    story.append(PageBreak())
+
+    # Section 5 (NEW v2.8.0)
+    story.append(Paragraph("5. Clichés Instantanés VSS, Inspection du Slack Space & Recherche Brute", s["h1"]))
+
+    story.append(Paragraph("A. Clichés Instantanés Windows VSS (Volume Shadow Copies)", s["h2"]))
+    story.append(Paragraph(
+        "Sur les volumes Windows NTFS, le service VSS enregistre des instantanés temporels (Shadow Copies) conservant des versions antérieures "
+        "de fichiers supprimés, registres système SAM/SYSTEM, et journaux d'événements :",
+        s["body"]
+    ))
+    story.append(Paragraph("• <b>Balayage Heuristique du Catalogue VSS (magic <code>'scek' 0x7363656B</code>)</b> : L'outil explore les blocs de métadonnées du pilote de clichés instantanés dans l'espace système NTFS.", s["bullet"]))
+    story.append(Paragraph("• <b>Décodage des Descripteurs de Snapshots</b> : Extraction des identifiants GUID de cliché, des dates de création Windows FILETIME (intervalles de 100 ns depuis 1601), et des volumes cibles.", s["bullet"]))
+    story.append(Paragraph("• <b>Sélection Directe dans l'Explorateur</b> : Les clichés découverts sont listés directement dans le sélecteur de volumes de l'explorateur virtuel, permettant de voyager dans le temps pour comparer les états pré/post-incident.", s["bullet"]))
+
+    story.append(Paragraph("B. Inspecteur Forensique de File Slack Space (RAM Slack & Drive Slack)", s["h2"]))
+    story.append(Paragraph(
+        "Lorsqu'un fichier de taille logique $L$ est enregistré sur un disque, le système lui alloue un nombre entier de clusters "
+        "(taille physique allouée P = ceil(L / C) * C). La zone résiduelle entre L et P constitue le <b>File Slack</b>, "
+        "hautement stratégique pour l'investigation médico-légale :",
+        s["body"]
+    ))
+    story.append(Paragraph("• <b>RAM Slack (Fin du dernier secteur)</b> : Zone entre la fin exacte du fichier logique et la frontière du secteur de 512 octets. Sur les anciens OS, elle était comblée par des résidus directs de la mémoire vive (mots de passe, fragments d'e-mails, clés). Sur les OS modernes, elle est comblée de zéros.", s["bullet"]))
+    story.append(Paragraph("• <b>Drive Slack / Volume Slack (Secteurs résiduels du cluster)</b> : Secteurs complets compris entre le secteur contenant la fin du fichier et la fin du cluster alloué. Cette zone contient les octets intouchés des anciens fichiers ayant occupé ce cluster auparavant (fichiers effacés, fragments de documents confidentiels, artefacts de logiciels malveillants désinstallés).", s["bullet"]))
+    story.append(Paragraph("• <b>Action Clic-Droit & Extraction Immédiate</b> : Dans l'explorateur de fichiers virtuel, un simple clic droit sur n'importe quel fichier permet d'ouvrir l'inspecteur visuel hexadécimal du Slack Space et d'exporter ces octets résiduels pour une analyse stéganographique ou de carving secondaire.", s["bullet"]))
+
+    story.append(Paragraph("C. Moteur de Recherche Brute Multi-Threadée (Raw Search)", s["h2"]))
+    story.append(Paragraph(
+        "Pour identifier des indicateurs de compromission (IOC), des mots-clés de dossiers criminels ou des expressions régulières sans "
+        "dépendre de l'intégrité du système de fichiers, DFR-Forensics intègre un scanner multi-threadé en streaming continu :",
+        s["body"]
+    ))
+    story.append(Paragraph("• <b>Encodages Multiples</b> : Recherche simultanée en ASCII, UTF-8 et UTF-16LE (caractères 16 bits Windows/Unicode).", s["bullet"]))
+    story.append(Paragraph("• <b>Expressions Régulières & Insensibilité à la Casse</b> : Support complet des regex Python appliquées par blocs avec chevauchement (overlap) pour éviter qu'une signature ne soit tronquée à la frontière d'un chunk.", s["bullet"]))
+    story.append(Paragraph("• <b>Rapport Détaillé & Export CSV</b> : Chaque occurrence est localisée au byte près et au LBA physique correspondant, accompagnée d'un aperçu textuel et hexadécimal contextuel.", s["bullet"]))
+
+    story.append(Paragraph("D. Entropie Spécialisée Flash (Inspiration Binwalk & Détection 0xFF)", s["h2"]))
+    story.append(Paragraph(
+        "Sur les mémoires flash brutes (NAND/NOR, puces eMMC dessoudées / Chip-Off), les blocs effacés ne sont pas remplis de zéros "
+        "(<code>0x00</code>) comme sur les disques mécaniques, mais de <b>0xFF</b> (cellules à l'état vierge non programmé). "
+        "DFR-Forensics ajuste son moteur d'entropie spatiale pour distinguer immédiatement l'espace flash effacé (lignes grises 0xFF), "
+        "le code non compressé (vert), les données compressées (bleu) et les conteneurs chiffrés réels (violet sombre).",
         s["body"]
     ))
 
     story.append(PageBreak())
-    story.append(Paragraph("4. Moteur de Carving Intelligent & Prévisualisation Résiliente", s["h1"]))
+
+    # Section 6 (Carving Engine)
+    story.append(Paragraph("6. Moteur de Carving Intelligent, NIST CFTT & Dé-tressage BraidResolver", s["h1"]))
     story.append(Paragraph(
         "Contrairement aux carvers naïfs qui extraient des blocs arbitraires en provoquant d'innombrables faux positifs, "
         "<b>DFR-Forensics</b> intègre un moteur de validation mathématique et structurelle propre à chaque format :",
@@ -375,133 +472,103 @@ def build_french_whitepaper(output_path: str):
             Paragraph("Traversée des Local File Headers et validation par le Central Directory Record (<code>PK\\x01\\x02</code>) et End of Central Directory (<code>PK\\x05\\x06</code>).", s["table_cell"]),
         ],
     ]
-    t_carver = Table(carver_table_data, colWidths=[100, 130, 275])
+    t_carver = Table(carver_table_data, colWidths=[95, 125, 285])
     t_carver.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0f172a")),
         ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f8fafc")]),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 3.5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3.5),
     ]))
     story.append(t_carver)
-    story.append(Spacer(1, 10))
+    story.append(Spacer(1, 8))
 
-    story.append(Paragraph("Options Stratégiques de Carving & Alignement Sectoriel", s["h2"]))
-    story.append(Paragraph(
-        "Pour s'adapter à toutes les topologies de supports analysés, le moteur propose des options de configuration précises :",
-        s["body"]
-    ))
-    story.append(Paragraph("• <b>512 octets (Secteurs standard - Recommandé)</b> : Mode par défaut ultra-rapide calé sur les frontières sectorielles physiques. Idéal pour disques durs (HDD/SSD), clés USB et cartes mémoires.", s["bullet"]))
-    story.append(Paragraph("• <b>1 octet (Exhaustif / Tout décalage)</b> : Analyse chirurgicale octet par octet (offset libre). Indispensable pour la mémoire vive (RAM), les flux réseaux ou les images brutes dont les fichiers débutent avec un décalage arbitraire (1, 2, 17 octets...).", s["bullet"]))
-    story.append(Paragraph("• <b>4 096 octets (Clusters standard)</b> : Balayage accéléré aligné sur la taille standard des clusters de fichiers (NTFS, ext4).", s["bullet"]))
-    story.append(Paragraph("• <b>Espace non alloué uniquement (Fichiers effacés)</b> : Cible exclusivement les zones libérées et orphelines du disque en interrogeant les tables d'allocation et bitmaps de systèmes de fichiers (NTFS $Bitmap, FAT tables, exFAT allocation bitmap, EXT2/3/4 block bitmaps, QNX4/6 allocation tables, Apple APFS Spaceman & conteneurs, et zones non partitionnées). Cette stratégie élimine les redondances avec les fichiers sains de l'arborescence active et accélère le scan de 5 à 10 fois.", s["bullet"]))
-    story.append(Paragraph("• <b>Dé-tressage Avancé (De-Braiding / BraidResolver)</b> : Désactivé par défaut pour préserver la structure brute des fichiers et éviter tout découpage involontaire. Lorsqu'il est activé à la demande, il sépare mathématiquement les flux mutuellement entrelacés en quinconce (motif 1A-1B-2A-2B) avec validation réelle du décodage de pixels.", s["bullet"]))
-    story.append(Spacer(1, 6))
+    story.append(Paragraph("Stratégies Sectorielles & Dé-tressage NIST CFTT", s["h2"]))
+    story.append(Paragraph("• <b>Alignement Sectoriel Flexible (512B, 4096B, 1B exhaustif)</b> : Balayage ultra-rapide aligné par défaut sur 512 octets, ou décalage libre octet par octet indispensable pour les captures de mémoire vive (RAM) et flux réseau.", s["bullet"]))
+    story.append(Paragraph("• <b>Espace Non Alloué Uniquement</b> : Interrogation directe des bitmaps d'allocation (NTFS $Bitmap, FAT, exFAT bitmap, EXT block bitmaps, APFS Spaceman, HFS+ $AllocationFile) accélérant le traitement de 5 à 10 fois en éliminant les fichiers sains redondants.", s["bullet"]))
+    story.append(Paragraph("• <b>Dé-tressage BraidResolver (NIST CFTT Graphic-Braid)</b> : Conçu pour résoudre le scénario où deux flux graphiques sont écrits de façon entrelacée en alternance de clusters [1A, 1B, 2A, 2B]. Le moteur sépare mathématiquement les deux flux avec test de décompression en mémoire, validant 100% de la suite officielle NIST.", s["bullet"]))
+    story.append(Paragraph("• <b>Cocktail de Résilience Visuelle</b> : Auto-fermeture des marqueurs de fin de fichier tronqués (injection virtuelle <code>FF D9</code>), mode de décodage permissif (Pillow avec <code>LOAD_TRUNCATED_IMAGES</code>) et tolérance chirurgicale aux anomalies de longueur d'en-tête.", s["bullet"]))
 
-    story.append(Paragraph("Conformité aux Standards NIST CFTT & Dé-tressage Automatique (De-Braiding)", s["h2"]))
-    story.append(Paragraph(
-        "<b>DFR-Forensics</b> valide avec succès l'intégralité de la suite officielle de référence <b>NIST CFTT Graphic Carving</b> "
-        "(8 images disques médico-légales de test) :",
-        s["body"]
-    ))
-    story.append(Paragraph("• <b>graphic-basic & graphic-nofill</b> : 40/40 fichiers contigus (BMP, GIF, JPG, PNG, TIFF) sculptés avec dimensions et hashs parfaits.", s["bullet"]))
-    story.append(Paragraph("• <b>graphic-shifted & notshifted</b> : Extraction sans perte des flux non alignés (décalages de 1 à 511 octets au sein des secteurs).", s["bullet"]))
-    story.append(Paragraph("• <b>graphic-partials</b> : Récupération résiliente des flux d'images tronqués sans crash de l'analyseur.", s["bullet"]))
-    story.append(Paragraph("• <b>graphic-braid (Dé-tressage In-Memory)</b> : Le moteur <code>BraidResolver</code> détecte et sépare mathématiquement les paires de fichiers mutuellement entrelacées [1A, 1B, 2A, 2B] sans artéfact de pixels ni corruption visuelle (100% des 20 fichiers décodés avec succès).", s["bullet"]))
-    story.append(Spacer(1, 6))
+    story.append(PageBreak())
 
-    story.append(Paragraph("Le Cocktail de Résilience Visuelle pour Fichiers Endommagés", s["h2"]))
-    story.append(Paragraph(
-        "Dans les affaires réelles, les images extraites de disques wipés ou accidentés présentent fréquemment des corruptions partielles. "
-        "L'outil implémente trois boucliers de tolérance graphique :",
-        s["body"]
-    ))
-    story.append(Paragraph("1. <b>Auto-fermeture des flux tronqués</b> : Lorsqu'un flux JPEG s'interrompt brutalement sans le marqueur <code>FF D9</code>, l'outil injecte virtuellement les 2 octets en mémoire vive. Le moteur graphique restitue ainsi la quasi-totalité de l'image au lieu d'afficher une boîte d'erreur vide.", s["bullet"]))
-    story.append(Paragraph("2. <b>Mode de décodage permissif</b> : Intégration en fallback de Pillow configuré avec <code>LOAD_TRUNCATED_IMAGES = True</code> si le parser strict de Qt rejette l'image.", s["bullet"]))
-    story.append(Paragraph("3. <b>Tolérance chirurgicale aux en-têtes altérés</b> : En cas d'altération d'un octet dans une table de quantification DQT (ex. altération <code>FF DB 00 00</code> au lieu de la longueur standard), le moteur corrige la longueur attendue à la volée et restaure la prévisualisation sans jamais toucher au fichier source.", s["bullet"]))
+    # Section 7 (Summary Matrix & Conclusion)
+    story.append(Paragraph("7. Matrice des Capacités Forensiques & Validation Médico-Légale", s["h1"]))
 
-    story.append(Paragraph("5. Cartographie d'Entropie Multi-Niveaux & Validation Médico-Légale", s["h1"]))
-    story.append(Paragraph("Échelle Forensique de Densité & Entropie de Shannon", s["h2"]))
-    story.append(Paragraph(
-        "L'entropie de Shannon mesure le niveau d'aléa de l'information selon la formule mathématique : "
-        "<b>H(X) = -SUM(p(x) * log2(p(x)))</b>. "
-        "Pour éviter la confusion courante entre fichiers multimédias compressés et conteneurs chiffrés, la barre de présence des données "
-        "du canevas spatial utilise désormais une échelle médico-légale à 4 niveaux :",
-        s["body"]
-    ))
-    story.append(Paragraph("• <b>Vert Émeraude (Données Claires - H &le; 7.4)</b> : Code source, documents texte, métadonnées, tables de partitions et structures non-compressées.", s["bullet"]))
-    story.append(Paragraph("• <b>Bleu Dodger / Cyan (Compressé & Médias - 7.4 &lt; H &le; 7.88)</b> : Flux JPEG, vidéos MP4/WMV/MOV, archives ZIP et PDF.", s["bullet"]))
-    story.append(Paragraph("• <b>Violet Sombre (Haute Entropie / Chiffrement Réel - H &gt; 7.88)</b> : Volumes BitLocker, conteneurs LUKS, clés cryptographiques aléatoires.", s["bullet"]))
-    story.append(Paragraph("• <b>Noir Bordeaux (100% Zéros / Espace Wipé - Ratio &gt; 98%)</b> : Secteurs effacés ou non alloués.", s["bullet"]))
-
-    story.append(Paragraph("Matrice de Résilience & Validation des Scénarios de Corruption", s["h2"]))
-
-    dftt_table_data = [
+    cap_table_data = [
         [
-            Paragraph("Scénario de Corruption", s["table_header"]),
-            Paragraph("Système Cible", s["table_header"]),
-            Paragraph("Altération Appliquée", s["table_header"]),
-            Paragraph("Mécanisme de Récupération", s["table_header"]),
-            Paragraph("Intégrité des Données", s["table_header"]),
+            Paragraph("Module / Domaine", s["table_header"]),
+            Paragraph("Technologies Cibles", s["table_header"]),
+            Paragraph("Capacités Clés DFR-Forensics", s["table_header"]),
+            Paragraph("Statut v2.8.0", s["table_header"]),
         ],
         [
-            Paragraph("<b>Secteur de Boot Détruit (VBR)</b>", s["table_cell"]),
-            Paragraph("FAT16 / FAT32", s["table_cell"]),
-            Paragraph("Boot Sector LBA 0 wipé (zéros)<br/>Table de partition absente", s["table_cell"]),
-            Paragraph("Reconstitution BPB autonome via miroir FAT & corrélation clusters", s["table_cell"]),
-            Paragraph("<b>100% Bit-Exact</b><br/>Fichiers & structures restaurés", s["table_cell"]),
+            Paragraph("<b>Conteneurs Disques</b>", s["table_cell"]),
+            Paragraph("RAW, DD, VMDK, VHD, VHDX, QCOW2, E01, AD1, AFF4, DMG", s["table_cell"]),
+            Paragraph("Ouverture stricte en lecture seule, lecture par blocs multi-threadée, flux virtuels Copy-On-Write", s["table_cell"]),
+            Paragraph("<b>Prise en charge intégrale</b>", s["table_cell"]),
         ],
         [
-            Paragraph("<b>Superbloc Primaire Détruit</b>", s["table_cell"]),
-            Paragraph("Linux EXT2/3/4", s["table_cell"]),
-            Paragraph("Superbloc LBA 2 wipé<br/>Fichiers supprimés en slack space", s["table_cell"]),
-            Paragraph("Bascule superbloc de secours, défragmentation double indirecte & undelete", s["table_cell"]),
-            Paragraph("<b>100% Bit-Exact</b><br/>Arborescence & hashs intègres", s["table_cell"]),
+            Paragraph("<b>Tables de Partitions</b>", s["table_cell"]),
+            Paragraph("MBR DOS, EBR chaînés, UEFI GPT 2.10 Primaire & Backup", s["table_cell"]),
+            Paragraph("Réparation automatique GPT, recalcul CRC32 IEEE 802.3, restauration Protective MBR", s["table_cell"]),
+            Paragraph("<b>Restauration Bit-Exact</b>", s["table_cell"]),
         ],
         [
-            Paragraph("<b>Dissimulation Stéganographique</b>", s["table_cell"]),
-            Paragraph("FAT12/16/32", s["table_cell"]),
-            Paragraph("Fichier masqué sous l'attribut spécial Volume Label (0x08)", s["table_cell"]),
-            Paragraph("Analyse des métadonnées de répertoire et extraction de la charge utile", s["table_cell"]),
-            Paragraph("<b>100% Intact</b><br/>Anomalie identifiée & extraite", s["table_cell"]),
+            Paragraph("<b>Systèmes Windows</b>", s["table_cell"]),
+            Paragraph("FAT12/16/32, exFAT, NTFS ($MFT, $MFTMirr, $LogFile), VSS", s["table_cell"]),
+            Paragraph("Reconstruction BPB orphelin, bascule $MFTMirr/VBR, instantanés VSS temporels, inspection File Slack", s["table_cell"]),
+            Paragraph("<b>Avancé + VSS + Slack</b>", s["table_cell"]),
         ],
         [
-            Paragraph("<b>Chaînes EBR Dégradées</b>", s["table_cell"]),
-            Paragraph("DOS MBR / Extended", s["table_cell"]),
-            Paragraph("Chaîne EBR imbriquée complexe avec intervalles logiques non alloués", s["table_cell"]),
-            Paragraph("Traversée récursive étendue et détection des tables orphelines", s["table_cell"]),
-            Paragraph("<b>100% Reconstitué</b><br/>Lecteurs logiques complets", s["table_cell"]),
+            Paragraph("<b>Systèmes Linux</b>", s["table_cell"]),
+            Paragraph("EXT2, EXT3, EXT4 (Extents 0xF30A), CPIO, SquashFS v4", s["table_cell"]),
+            Paragraph("Sparse superblocks, défragmentation double-indirecte, undelete slack space, décompression SquashFS", s["table_cell"]),
+            Paragraph("<b>Avancé + SquashFS + CPIO</b>", s["table_cell"]),
         ],
         [
-            Paragraph("<b>Flux Multimédias Tronqués</b>", s["table_cell"]),
-            Paragraph("JPEG / PNG / BMP / OLE / PDF", s["table_cell"]),
-            Paragraph("Marqueur EOF absent, altération d'octet dans l'en-tête (DQT)", s["table_cell"]),
-            Paragraph("Cocktail de résilience : auto-fermeture FF D9, tolérance d'en-tête & décodage permissif", s["table_cell"]),
-            Paragraph("<b>Restitution Visuelle</b><br/>Prévisualisation restaurée", s["table_cell"]),
+            Paragraph("<b>Écosystème Apple</b>", s["table_cell"]),
+            Paragraph("HFS+ / HFSX, APFS (Apple File System)", s["table_cell"]),
+            Paragraph("B-Tree Catalog HFS, bitmap $AllocationFile, Object Map OMAP, volumes APFS individuels séparés", s["table_cell"]),
+            Paragraph("<b>Nouveau v2.8.0 (HFS+ & APFS)</b>", s["table_cell"]),
+        ],
+        [
+            Paragraph("<b>Embarqué & Flash</b>", s["table_cell"]),
+            Paragraph("QNX4, QNX6, QNX F3S / ETFS, F2FS, EROFS, UBI / UBIFS", s["table_cell"]),
+            Paragraph("Erase units flash brutes, recalcul in-place, détection de superblocs flash, gestion 0xFF", s["table_cell"]),
+            Paragraph("<b>Nouveau v2.8.0 (F3S / Flash)</b>", s["table_cell"]),
+        ],
+        [
+            Paragraph("<b>Recherche & Carving</b>", s["table_cell"]),
+            Paragraph("Carving multi-formats, Raw Search, Entropie Binwalk", s["table_cell"]),
+            Paragraph("Recherche streaming multi-threadée (Regex/Unicode), dé-tressage CFTT, validation de trames", s["table_cell"]),
+            Paragraph("<b>Complet + NIST CFTT 100%</b>", s["table_cell"]),
         ],
     ]
-    t_dftt = Table(dftt_table_data, colWidths=[95, 75, 140, 95, 100])
-    t_dftt.setStyle(TableStyle([
+    t_cap = Table(cap_table_data, colWidths=[90, 110, 215, 90])
+    t_cap.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0f172a")),
         ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f8fafc")]),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
-    story.append(t_dftt)
-    story.append(Spacer(1, 14))
+    story.append(t_cap)
+    story.append(Spacer(1, 12))
 
-    story.append(Paragraph("Conclusion", s["h2"]))
+    story.append(Paragraph("Conclusion & Perspectives", s["h2"]))
     story.append(Paragraph(
-        "Grâce à sa combinaison unique d'analyse géométrique UEFI GPT 2.10, de reconstruction mathématique des BPB orphelins, "
-        "de défragmentation EXT2/3/4 et de validation granulaire de carving, <b>DFR-Forensics</b> constitue un instrument "
-        "médico-légal robuste et autonome pour les laboratoires judiciaires, les équipes CSIRT/SOC et les experts en récupération de données d'urgence.",
+        "Avec sa version <b>v2.8.0</b>, <b>DFR-Forensics</b> franchit une étape majeure en unifiant l'investigation sur disques conventionnels, "
+        "postes de travail modernes et systèmes embarqués critiques. Grâce à la découverte autonome de clichés VSS, l'inspection chirurgicale "
+        "du Slack Space, le carving guidé par les bitmaps $AllocationFile / $Bitmap, le décodage de volumes bruts QNX F3S et SquashFS, "
+        "et la recherche brute multi-threadée, la plateforme offre aux laboratoires de criminalistique numérique, forces de l'ordre, "
+        "équipes de réponse aux incidents (CSIRT) et analystes en rétro-ingénierie un instrument forensique fiable, transparent et "
+        "strictement conforme aux normes médico-légales internationales.",
         s["body"]
     ))
 
-    doc.build(story, canvasmaker=lambda *args, **kwargs: NumberedCanvas(*args, doc_title="DFR-Forensics - Manuel Technique", doc_lang="fr", **kwargs))
+    doc.build(story, canvasmaker=lambda *args, **kwargs: NumberedCanvas(*args, doc_title="DFR-Forensics - Guide d'Architecture Forensique", doc_lang="fr", **kwargs))
     print(f"[OK] French Whitepaper generated: {output_path}")
 
 
@@ -517,13 +584,14 @@ def build_english_whitepaper(output_path: str):
     s = create_styles()
     story = []
 
-    story.append(Paragraph("DFR-FORENSICS", s["title"]))
-    story.append(Paragraph("Disk & File Resurrection : Low-Level Architecture & Technical Whitepaper", s["subtitle"]))
+    # Title & Metadata
+    story.append(Paragraph("DFR-FORENSICS v2.8.0", s["title"]))
+    story.append(Paragraph("Disk & File Resurrection: Low-Level Architecture & Technical Whitepaper", s["subtitle"]))
 
     meta_table_data = [
         [
             Paragraph("<b>Author:</b> Dam-FOR3K", s["table_cell"]),
-            Paragraph("<b>Version:</b> v2.7.3", s["table_cell"]),
+            Paragraph("<b>Version:</b> v2.8.0", s["table_cell"]),
             Paragraph("<b>Date:</b> September 2026", s["table_cell"]),
             Paragraph("<b>License:</b> MIT Open-Source", s["table_cell"]),
         ]
@@ -533,28 +601,32 @@ def build_english_whitepaper(output_path: str):
         ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8fafc")),
         ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#cbd5e1")),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
     story.append(t_meta)
-    story.append(Spacer(1, 12))
+    story.append(Spacer(1, 10))
 
+    # Section 1
     story.append(Paragraph("1. Forensic Problem Statement & Architectural Philosophy", s["h1"]))
     story.append(Paragraph(
         "In modern cyberattacks (destructive wipers like <i>HermeticWiper</i>, <i>CaddyWiper</i>, <i>WhisperGate</i>) "
         "and catastrophic storage hardware incidents (initial bad sector bursts, power loss during partitioning), "
         "storage boot structures are systematically targeted. When sector LBA 0 (MBR) or LBA 1 (GPT) is wiped with zeroes, "
-        "operating systems (Windows, Linux, macOS) and traditional forensic tools flag the media as <b>completely unallocated or uninitialized</b>.",
+        "operating systems (Windows, Linux, macOS) and traditional commercial forensic suites flag the media as <b>completely unallocated or uninitialized</b>.",
         s["body"]
     ))
     story.append(Paragraph(
-        "<b>DFR-Forensics</b> (<i>Disk & File Resurrection</i>) was designed by <b>Dam-FOR3K</b> to bridge this critical gap through strict forensic paradigms:",
+        "<b>DFR-Forensics</b> (<i>Disk & File Resurrection</i>) was engineered by <b>Dam-FOR3K</b> as an autonomous, professional-grade, "
+        "pure-Python forensic platform operating without mandatory external closed-source DLLs. It enforces strict digital evidence principles:",
         s["body"]
     ))
-    story.append(Paragraph("• <b>Strict Zero-Write Policy</b>: No write operations are ever performed on the target evidence. Raw images (RAW, DD, E01, AD1, AFF4) and live physical disks (<i>\\\\.\\PhysicalDriveX</i>) are opened with strict read-only hardware flags.", s["bullet"]))
-    story.append(Paragraph("• <b>Virtual Copy-On-Write (COW) Architecture</b>: All table restorations, container decryptions, and superblock syntheses are executed purely in an in-memory virtual layer, ensuring 100% evidence integrity.", s["bullet"]))
-    story.append(Paragraph("• <b>Mathematical Reconstruction via Invariants</b>: No offsets or cluster sizes are hardcoded. The engine derives architecture from universal filesystem laws (media descriptors, cluster chain relationships, and magic headers).", s["bullet"]))
+    story.append(Paragraph("• <b>Strict Zero-Write Policy</b>: No write operations are ever performed on the target evidence. Raw disk images (RAW, DD, VMDK, VHD/VHDX, QCOW2, E01, AD1, AFF4, DMG) and live physical drives (<i>\\\\.\\PhysicalDriveX</i>) are mounted exclusively with hardware-level read-only flags.", s["bullet"]))
+    story.append(Paragraph("• <b>Virtual Copy-On-Write (COW) Architecture</b>: All geometry repairs, volume table syntheses, cryptographic container decryptions (BitLocker, LUKS), and superblock restorations execute purely in an in-memory virtual abstraction layer, ensuring 100% evidentiary integrity.", s["bullet"]))
+    story.append(Paragraph("• <b>Mathematical Reconstruction via Invariants</b>: No offsets or cluster sizes are hardcoded. The engine derives architecture from universal filesystem invariants (media descriptors, cluster chain relationships, and magic headers) to recalculate exact layout even when primary headers are wiped.", s["bullet"]))
+    story.append(Paragraph("• <b>Universal Interactive & Headless Workflow</b>: Combining an interactive PySide6 graphical interface with a fully scriptable CLI for CSIRT/SOC incident response pipelines, the suite unifies spatial layout mapping, Binwalk-inspired entropy tracking, Slack Space inspection, multi-threaded raw pattern search, and tree-based virtual file extraction across all major desktop and embedded OS families.", s["bullet"]))
 
+    # Section 2
     story.append(Paragraph("2. Low-Level Partition Table Architecture", s["h1"]))
     story.append(Paragraph("A. Master Boot Record (MBR) & EBR Chains", s["h2"]))
     story.append(Paragraph(
@@ -570,15 +642,15 @@ def build_english_whitepaper(output_path: str):
         "Modern storage adheres to the UEFI GPT layout:",
         s["body"]
     ))
-    story.append(Paragraph("• <b>LBA 0 (Protective MBR)</b> : Dummy MBR containing a single partition of type <code>0xEE</code> spanning the entire drive to prevent legacy utilities from misidentifying the disk.", s["bullet"]))
-    story.append(Paragraph("• <b>LBA 1 (Primary GPT Header)</b> : 92-byte header beginning with signature <code>EFI PART</code> (<code>0x5452415020494645</code>). Stores disk GUIDs, partition table pointer (LBA 2), backup header pointer (LBA N-1), and two independent CRC32 checksums.", s["bullet"]))
-    story.append(Paragraph("• <b>LBA 2 to 33 (Partition Entry Array)</b> : 128 entries of 128 bytes each (16,384 bytes). Each record specifies partition type GUID, unique GUID, first LBA, last LBA, attributes, and UTF-16LE partition label.", s["bullet"]))
-    story.append(Paragraph("• <b>LBA N-33 to N-2 (Backup Array)</b> and <b>LBA N-1 (Backup Header)</b> : Full replica at the end of the disk providing fault tolerance.", s["bullet"]))
+    story.append(Paragraph("• <b>LBA 0 (Protective MBR)</b>: Dummy MBR containing a single partition of type <code>0xEE</code> spanning the entire drive to prevent legacy utilities from misidentifying the disk.", s["bullet"]))
+    story.append(Paragraph("• <b>LBA 1 (Primary GPT Header)</b>: 92-byte header beginning with signature <code>EFI PART</code> (<code>0x5452415020494645</code>). Stores disk GUIDs, partition table pointer (LBA 2), backup header pointer (LBA N-1), and two independent CRC32 checksums.", s["bullet"]))
+    story.append(Paragraph("• <b>LBA 2 to 33 (Partition Entry Array)</b>: 128 entries of 128 bytes each (16,384 bytes). Each record specifies partition type GUID, unique GUID, first LBA, last LBA, attributes, and UTF-16LE partition label.", s["bullet"]))
+    story.append(Paragraph("• <b>LBA N-33 to N-2 (Backup Array)</b> and <b>LBA N-1 (Backup Header)</b>: Full replica at the end of the disk providing fault tolerance.", s["bullet"]))
 
     story.append(Paragraph("C. CRC32 Recalculation Algorithm (IEEE 802.3)", s["h2"]))
     story.append(Paragraph(
         "When a wiper zeroes out the first megabytes of a disk (LBA 0..2048), the Primary GPT is wiped, but the Secondary GPT (LBA N-1) "
-        "is frequently intact. DFR-Forensics restores the structure as follows :",
+        "is frequently intact. DFR-Forensics restores the structure as follows:",
         s["body"]
     ))
     story.append(Paragraph(
@@ -591,7 +663,10 @@ def build_english_whitepaper(output_path: str):
     ))
 
     story.append(PageBreak())
-    story.append(Paragraph("3. Filesystem Engines & Autonomous Recovery Algorithms", s["h1"]))
+
+    # Section 3
+    story.append(Paragraph("3. Standard Filesystem Engines & Autonomous Recovery", s["h1"]))
+
     story.append(Paragraph("A. FAT12 / FAT16 / FAT32 & Backup Boot Sector Failover", s["h2"]))
     story.append(Paragraph(
         "In FAT filesystems, the <b>BPB (BIOS Parameter Block)</b> in the Volume Boot Record (LBA 0) dictates all cluster geometry: "
@@ -634,19 +709,108 @@ def build_english_whitepaper(output_path: str):
         s["body"]
     ))
 
-    story.append(Paragraph("E. Embedded & Unix Systems (QNX, APFS, LUKS, BitLocker)", s["h2"]))
+    story.append(PageBreak())
+
+    # Section 4 (NEW v2.8.0)
+    story.append(Paragraph("4. Embedded, Mobile & Flash Filesystems (v2.8.0 Additions)", s["h1"]))
     story.append(Paragraph(
-        "• <b>QNX4 & QNX6 Power-Safe</b>: Automotive head units and embedded controllers via superblocks <code>0x68191122</code> at LBA 8192/11776 and transaction logs.<br/>"
-        "• <b>Apple APFS</b>: Container Superblock <code>NXSB</code>, Object Map (OMAP) B-Tree traversal, and multi-volume container enumeration.<br/>"
-        "• <b>BitLocker & LUKS1/2</b>: Metadata extraction, PBKDF2/Argon2id key derivation, and transparent in-memory streaming decryption.",
+        "Version 2.8.0 expands DFR-Forensics beyond traditional PC storage into industrial firmware dumps, "
+        "automotive infotainment systems (IVI/ECUs), mobile devices, and modern Apple architectures:",
+        s["body"]
+    ))
+
+    story.append(Paragraph("A. QNX Flash Filesystem (F3S / ETFS) - Automotive & Industrial IoT", s["h2"]))
+    story.append(Paragraph(
+        "In automotive telematics and critical infrastructure (BlackBerry QNX Neutrino), raw NOR and NAND flash memories "
+        "frequently use <b>QNX F3S (Flash Filesystem v3)</b> or <b>ETFS (Embedded Transaction FS)</b> instead of partition tables. "
+        "Physical flash is organized in <i>Erase Units</i> (64 KB, 128 KB, or 256 KB blocks):",
+        s["body"]
+    ))
+    story.append(Paragraph("• <b>Erase Unit Headers (magic <code>0x66</code>)</b>: Identification and parsing of block control records managing block wear leveling and sequence numbers.", s["bullet"]))
+    story.append(Paragraph("• <b>File & Extent Headers (magic <code>0x76</code>)</b>: Sequential parsing of metadata records storing UTF-8 filenames, file sizes, POSIX permissions, UID/GID, and payload extents.", s["bullet"]))
+    story.append(Paragraph("• <b>In-Place Update Reconstruction</b>: Because F3S writes updates across new flash units rather than overwriting in place, the parser resolves current file versions while also uncovering historical, superseded versions for deleted data recovery.", s["bullet"]))
+
+    story.append(Paragraph("B. Apple HFS+ / HFSX & $AllocationFile Bitmap Carving", s["h2"]))
+    story.append(Paragraph(
+        "Although APFS is primary on recent macOS releases, HFS+ (Hierarchical File System Plus) remains widespread "
+        "on external drives, Time Machine backups, and legacy forensic images:",
+        s["body"]
+    ))
+    story.append(Paragraph("• <b>Volume Header at Offset 1024 (magics <code>'H+' 0x482B</code> and <code>'HX' 0x4858</code>)</b>: Extraction of allocation block sizes, total block counts, and extent descriptors for system metadata files.", s["bullet"]))
+    story.append(Paragraph("• <b>Catalog B-Tree Traversal</b>: Pure-Python balanced B-Tree parser (header nodes, index nodes, leaf nodes) mapping Catalog Node IDs (CNID) to data forks, resource forks, and HFS UTC timestamps.", s["bullet"]))
+    story.append(Paragraph("• <b>Targeted Carving via $AllocationFile Bitmap</b>: Decodes the allocation bitmap file (1 bit per allocation block). DFR-Forensics maps exact unallocated block intervals, accelerating carving scans and eliminating healthy file false positives.", s["bullet"]))
+
+    story.append(Paragraph("C. Apple APFS (Apple File System) & Separated Volume Discovery", s["h2"]))
+    story.append(Paragraph(
+        "In APFS architectures, a single physical container (GUID <code>7C3457EF-0000-11AA-AA11-00306543ECAC</code>) hosts "
+        "multiple logically independent volumes (System, Data, Preboot, Recovery, VM) sharing free space dynamically:",
+        s["body"]
+    ))
+    story.append(Paragraph("• <b>Object Map (OMAP) & B-Tree Navigation</b>: Resolves virtual object IDs (OID) to physical block addresses (PBA).", s["bullet"]))
+    story.append(Paragraph("• <b>Individual Sub-Volume Discovery</b>: As of v2.8.0, APFS sub-volumes are automatically discovered and displayed separately in the partition table (as indented child entries) and in the virtual file explorer dropdown, enabling analysts to investigate user data independently from sealed system volumes.", s["bullet"]))
+
+    story.append(Paragraph("D. Embedded Linux Filesystems: SquashFS, CPIO, F2FS, EROFS, UBI/UBIFS", s["h2"]))
+    story.append(Paragraph(
+        "DFR-Forensics v2.8.0 integrates specialized parsers for embedded Linux distributions and mobile dumps:",
+        s["body"]
+    ))
+    story.append(Paragraph("• <b>SquashFS v4 (magic <code>'hsqs' 0x73717368</code>)</b>: High-density compressed read-only filesystem found in routers, gateways, and IoT firmware. Decompresses metadata tables, directory entries, and data fragments (Zlib, LZ4, Zstandard, XZ).", s["bullet"]))
+    story.append(Paragraph("• <b>CPIO / Initramfs (SVR4 portable formats <code>'070701'</code> and <code>'070702'</code> with CRC)</b>: Decodes Linux boot ramdisk archives, extracting init scripts, kernel modules, and embedded payloads.", s["bullet"]))
+    story.append(Paragraph("• <b>F2FS (Flash-Friendly File System, magic <code>0xF2F52010</code>)</b>: Superblock probing at offsets 1024 and 5120 bytes, checkpoint status validation, and segment layout discovery for modern Android devices.", s["bullet"]))
+    story.append(Paragraph("• <b>EROFS (Enhanced Read-Only FS, magic <code>0xE0F5E1E2</code>)</b>: Probes superblock at offset 1024, traversing uncompressed inodes and metadata on modern Android/Huawei vendor partitions.", s["bullet"]))
+    story.append(Paragraph("• <b>UBI / UBIFS (Unsorted Block Images)</b>: Decodes Erase Counter headers (<code>'UBI#' 0x55424923</code>) and Volume ID headers (<code>'UBI!' 0x55424921</code>) on raw flash media without hardware FTL.", s["bullet"]))
+
+    story.append(PageBreak())
+
+    # Section 5 (NEW v2.8.0)
+    story.append(Paragraph("5. Volume Shadow Copies (VSS), File Slack Inspection & Raw Search", s["h1"]))
+
+    story.append(Paragraph("A. Windows Volume Shadow Copies (VSS Snapshots)", s["h2"]))
+    story.append(Paragraph(
+        "On NTFS partitions, the Windows VSS subsystem maintains point-in-time snapshots of filesystem states, "
+        "preserving deleted files, previous registry hives (SAM, SYSTEM, SOFTWARE), and event logs:",
+        s["body"]
+    ))
+    story.append(Paragraph("• <b>Heuristic VSS Catalog Sweeper (magic <code>'scek' 0x7363656B</code>)</b>: Sweeps metadata storage chunks within NTFS volume structures.", s["bullet"]))
+    story.append(Paragraph("• <b>Snapshot Descriptor Decoding</b>: Extracts snapshot GUIDs, Windows FILETIME timestamps (100 ns intervals since Jan 1, 1601), and volume target associations.", s["bullet"]))
+    story.append(Paragraph("• <b>Direct Explorer Integration</b>: Discovered snapshots appear directly in the virtual file explorer dropdown, allowing incident responders to inspect historical filesystem states before malware execution or anti-forensic wiping.", s["bullet"]))
+
+    story.append(Paragraph("B. Forensic File Slack Inspector (RAM Slack & Drive Slack)", s["h2"]))
+    story.append(Paragraph(
+        "When a file with logical size $L$ is written to disk, the operating system allocates an integer number of clusters "
+        "(physical allocated size P = ceil(L / C) * C). The residual bytes between L and P constitute <b>File Slack</b>, "
+        "a critical goldmine for digital investigators:",
+        s["body"]
+    ))
+    story.append(Paragraph("• <b>RAM Slack (Last Sector Remainder)</b>: The gap between the logical end of file and the end of the current 512-byte physical sector. On legacy operating systems, this region was padded with transient RAM buffer artifacts (passwords, email fragments, encryption keys). Modern OSs zero this area.", s["bullet"]))
+    story.append(Paragraph("• <b>Drive Slack / Volume Slack (Remaining Cluster Sectors)</b>: The remaining unused sectors within the allocated cluster. This space contains uninitialized data from previous deleted files that previously occupied those sectors (deleted documents, malware fragments, residual plaintext).", s["bullet"]))
+    story.append(Paragraph("• <b>Right-Click Context Inspection & Extraction</b>: In the virtual file explorer, right-clicking any file opens the Slack Space Inspector, displaying hexadecimal previews and providing one-click export for secondary carving or steganographic review.", s["bullet"]))
+
+    story.append(Paragraph("C. Multi-Threaded Streaming Raw Keyword & Regex Search", s["h2"]))
+    story.append(Paragraph(
+        "To search for indicators of compromise (IOCs), case-specific keywords, or regular expressions without "
+        "relying on filesystem catalog integrity, DFR-Forensics provides a multi-threaded streaming chunk scanner:",
+        s["body"]
+    ))
+    story.append(Paragraph("• <b>Multi-Encoding Support</b>: Concurrently sweeps ASCII, UTF-8, and UTF-16LE (Windows Unicode).", s["bullet"]))
+    story.append(Paragraph("• <b>Regular Expressions & Overlap Handling</b>: Full regex matching across chunks with sliding window overlap to guarantee signatures spanning chunk boundaries are never missed.", s["bullet"]))
+    story.append(Paragraph("• <b>Detailed Reporting & CSV Export</b>: Every match is indexed by exact physical byte offset and LBA sector, with surrounding context snippets and instant CSV export.", s["bullet"]))
+
+    story.append(Paragraph("D. Binwalk-Inspired Flash Entropy & 0xFF Unprogrammed Handling", s["h2"]))
+    story.append(Paragraph(
+        "On raw flash chips (NAND/NOR, Chip-Off dumps), unwritten or erased blocks are filled with <b>0xFF</b> bytes "
+        "(unprogrammed cell state) rather than zeroes (<code>0x00</code>). DFR-Forensics adjusts its visual entropy mapper to "
+        "discriminate 0xFF flash space (grey lines), clear code/text (green), compressed media (blue), and encrypted volumes (deep purple).",
         s["body"]
     ))
 
     story.append(PageBreak())
-    story.append(Paragraph("4. Intelligent Carving Engine & Resilient Preview Cocktail", s["h1"]))
+
+    # Section 6 (Carving Engine)
+    story.append(Paragraph("6. Intelligent Carving Engine, NIST CFTT & BraidResolver", s["h1"]))
     story.append(Paragraph(
-        "Unlike naive carvers that extract arbitrary chunks and flood analysts with false positives, "
-        "<b>DFR-Forensics</b> enforces format-specific structural and mathematical validation:",
+        "Unlike naive carvers that extract arbitrary byte spans resulting in false positives, "
+        "<b>DFR-Forensics</b> applies strict format-specific structural and mathematical validation:",
         s["body"]
     ))
 
@@ -697,131 +861,102 @@ def build_english_whitepaper(output_path: str):
             Paragraph("Local File Header chaining and validation via Central Directory (<code>PK\\x01\\x02</code>) and EOCD (<code>PK\\x05\\x06</code>).", s["table_cell"]),
         ],
     ]
-    t_carver = Table(carver_table_data, colWidths=[100, 130, 275])
+    t_carver = Table(carver_table_data, colWidths=[95, 125, 285])
     t_carver.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0f172a")),
         ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f8fafc")]),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 3.5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3.5),
     ]))
     story.append(t_carver)
-    story.append(Spacer(1, 10))
+    story.append(Spacer(1, 8))
 
-    story.append(Paragraph("Strategic Carving Options & Sector Alignment", s["h2"]))
-    story.append(Paragraph(
-        "To adapt to any storage topology or memory dump, the engine offers surgical configuration options:",
-        s["body"]
-    ))
-    story.append(Paragraph("• <b>512 bytes (Standard sectors - Recommended)</b>: High-speed default mode aligned on physical sector boundaries. Ideal for HDD, SSD, USB flash drives, and SD cards.", s["bullet"]))
-    story.append(Paragraph("• <b>1 byte (Exhaustive / Any offset)</b>: Byte-by-byte exhaustive sweep (unaligned). Indispensable for RAM dumps, network streams, or shifted raw disk images where files begin at arbitrary offsets (1, 2, 17 bytes...).", s["bullet"]))
-    story.append(Paragraph("• <b>4,096 bytes (Standard clusters)</b>: Accelerated scan aligned on standard filesystem cluster boundaries (NTFS, ext4).", s["bullet"]))
-    story.append(Paragraph("• <b>Unallocated Space Only (Deleted Files)</b>: Targets exclusively freed and unassigned disk clusters by interrogating filesystem allocation tables and bitmaps (NTFS $Bitmap, FAT tables, exFAT allocation bitmap, EXT2/3/4 block bitmaps, QNX4/6 allocation tables, Apple APFS Spaceman & containers, and unpartitioned gaps). This strategy eliminates duplicate extraction of healthy active files and accelerates the carving scan by 5x to 10x.", s["bullet"]))
-    story.append(Paragraph("• <b>Advanced De-Braiding (BraidResolver)</b>: Disabled by default to preserve raw file integrity and prevent accidental fragmentation on standard systems. When explicitly enabled by the analyst, it mathematically separates interleaved file pairs (1A-1B-2A-2B pattern) with verified in-memory pixel decompression.", s["bullet"]))
-    story.append(Spacer(1, 6))
+    story.append(Paragraph("Strategic Sector Alignment & NIST CFTT Compliance", s["h2"]))
+    story.append(Paragraph("• <b>Flexible Sector Alignment (512B, 4096B, 1B unaligned)</b>: High-speed default mode aligned on 512-byte physical sectors, or 1-byte exhaustive scanning for unaligned memory dumps.", s["bullet"]))
+    story.append(Paragraph("• <b>Unallocated Space Only</b>: Probes filesystem bitmaps directly (NTFS $Bitmap, FAT tables, exFAT bitmap, EXT bitmaps, APFS Spaceman, HFS+ $AllocationFile), accelerating carving 5x-10x.", s["bullet"]))
+    story.append(Paragraph("• <b>BraidResolver De-Braiding (NIST CFTT Graphic-Braid)</b>: Successfully disentangles interleaved file pairs [1A, 1B, 2A, 2B] with verified in-memory pixel rendering, achieving 100% pass on the NIST suite.", s["bullet"]))
+    story.append(Paragraph("• <b>Visual Resilience Cocktail</b>: Auto-closure of truncated streams (virtual <code>FF D9</code>), permissive decoding (Pillow <code>LOAD_TRUNCATED_IMAGES</code>), and surgical header tolerance.", s["bullet"]))
 
-    story.append(Paragraph("NIST CFTT Graphic Carving Compliance & Automated De-Braiding", s["h2"]))
-    story.append(Paragraph(
-        "<b>DFR-Forensics</b> successfully passes the complete official <b>NIST CFTT Graphic Carving</b> test suite "
-        "(8 forensic benchmark disk images):",
-        s["body"]
-    ))
-    story.append(Paragraph("• <b>graphic-basic & graphic-nofill</b>: 40/40 contiguous files (BMP, GIF, JPG, PNG, TIFF) carved with 100% bit-exact dimensions and hashes.", s["bullet"]))
-    story.append(Paragraph("• <b>graphic-shifted & notshifted</b>: Lossless extraction of unaligned streams (offsets 1 to 511 bytes within sectors).", s["bullet"]))
-    story.append(Paragraph("• <b>graphic-partials</b>: Resilient recovery of truncated image streams without parser failures.", s["bullet"]))
-    story.append(Paragraph("• <b>graphic-braid (In-Memory De-Braiding)</b>: The <code>BraidResolver</code> engine automatically identifies and mathematically disentangles interleaved file pairs [1A, 1B, 2A, 2B] without Frankenstein pixel corruption (100% of 20 images successfully decoded in memory).", s["bullet"]))
-    story.append(Spacer(1, 6))
+    story.append(PageBreak())
 
-    story.append(Paragraph("The Resilient Preview Cocktail for Damaged Images", s["h2"]))
-    story.append(Paragraph(
-        "Real-world forensic images often exhibit partial corruptions. The tool integrates a three-tier resilience cocktail:",
-        s["body"]
-    ))
-    story.append(Paragraph("1. <b>Truncated Stream Auto-Closing</b>: Injects virtual <code>FF D9</code> in memory if EOI is missing, allowing graphical renderers to display all intact MCUs up to the cut.", s["bullet"]))
-    story.append(Paragraph("2. <b>Permissive Decoding Mode</b>: Pillow fallback with <code>LOAD_TRUNCATED_IMAGES = True</code> when strict Qt parsers reject damaged images.", s["bullet"]))
-    story.append(Paragraph("3. <b>Surgical Header Tolerance</b>: Dynamically patches corrupted marker lengths (e.g. corrupted DQT table length <code>FF DB 00 00</code>) in memory to achieve 100% visual preview.", s["bullet"]))
+    # Section 7 (Summary Matrix & Conclusion)
+    story.append(Paragraph("7. Forensic Capabilities Matrix & Verification", s["h1"]))
 
-    story.append(Paragraph("5. Multi-Tier Shannon Entropy & Forensic Resilience Validation", s["h1"]))
-    story.append(Paragraph("Four-Tier Forensic Entropy Scale", s["h2"]))
-    story.append(Paragraph(
-        "Shannon entropy measures information randomness: "
-        "<b>H(X) = -SUM(p(x) * log2(p(x)))</b>. "
-        "To avoid misidentifying normal compressed media as encrypted storage, the disk presence bar utilizes a 4-tier scale:",
-        s["body"]
-    ))
-    story.append(Paragraph("• <b>Emerald Green (Clear Active Data - H &le; 7.4)</b>: Plain text, partition tables, metadata, and uncompressed structures.", s["bullet"]))
-    story.append(Paragraph("• <b>Dodger Blue / Cyan (Compressed & Media - 7.4 &lt; H &le; 7.88)</b>: JPEG, MP4/WMV/MOV, ZIP archives, and PDFs.", s["bullet"]))
-    story.append(Paragraph("• <b>Deep Purple (High Entropy / True Encryption - H &gt; 7.88)</b>: BitLocker, LUKS, and cryptographic keystores.", s["bullet"]))
-    story.append(Paragraph("• <b>Bordeaux Black (100% Zeroes / Wiped Space - Ratio &gt; 98%)</b>: Wiped or unallocated sectors.", s["bullet"]))
-
-    story.append(Paragraph("Corruption Scenarios & Resilience Validation Matrix", s["h2"]))
-
-    dftt_table_data = [
+    cap_table_data = [
         [
-            Paragraph("Corruption Scenario", s["table_header"]),
-            Paragraph("Target System", s["table_header"]),
-            Paragraph("Applied Corruption", s["table_header"]),
-            Paragraph("Recovery Engine Mechanism", s["table_header"]),
-            Paragraph("Data Integrity", s["table_header"]),
+            Paragraph("Module / Domain", s["table_header"]),
+            Paragraph("Target Technologies", s["table_header"]),
+            Paragraph("Key DFR-Forensics Capabilities", s["table_header"]),
+            Paragraph("v2.8.0 Status", s["table_header"]),
         ],
         [
-            Paragraph("<b>Severed Boot Sector (VBR)</b>", s["table_cell"]),
-            Paragraph("FAT16 / FAT32", s["table_cell"]),
-            Paragraph("Boot Sector LBA 0 wiped (zeroes)<br/>Missing partition table", s["table_cell"]),
-            Paragraph("Autonomous BPB derivation via mirror FAT & cluster magic correlation", s["table_cell"]),
-            Paragraph("<b>100% Bit-Exact</b><br/>Files & directory tree restored", s["table_cell"]),
+            Paragraph("<b>Disk Containers</b>", s["table_cell"]),
+            Paragraph("RAW, DD, VMDK, VHD, VHDX, QCOW2, E01, AD1, AFF4, DMG", s["table_cell"]),
+            Paragraph("Strict read-only mounting, chunk-based multi-threaded I/O, virtual Copy-On-Write streams", s["table_cell"]),
+            Paragraph("<b>Full Support</b>", s["table_cell"]),
         ],
         [
-            Paragraph("<b>Severed Primary Superblock</b>", s["table_cell"]),
-            Paragraph("Linux EXT2/3/4", s["table_cell"]),
-            Paragraph("Primary superblock wiped<br/>Deleted files in directory slack space", s["table_cell"]),
-            Paragraph("Backup superblock failover, double-indirect defragmentation & undelete", s["table_cell"]),
-            Paragraph("<b>100% Bit-Exact</b><br/>Full tree & hashes verified", s["table_cell"]),
+            Paragraph("<b>Partition Schemes</b>", s["table_cell"]),
+            Paragraph("DOS MBR, Linked EBR, UEFI GPT 2.10 Primary & Backup", s["table_cell"]),
+            Paragraph("Automated GPT restoration, IEEE 802.3 CRC32 recalculation, Protective MBR synthesis", s["table_cell"]),
+            Paragraph("<b>Bit-Exact Repair</b>", s["table_cell"]),
         ],
         [
-            Paragraph("<b>Steganographic Volume Label</b>", s["table_cell"]),
-            Paragraph("FAT12/16/32", s["table_cell"]),
-            Paragraph("File payload concealed under Volume Label attribute (0x08)", s["table_cell"]),
-            Paragraph("Directory metadata attribute analysis & automated payload extraction", s["table_cell"]),
-            Paragraph("<b>100% Intact</b><br/>Stego anomaly flagged & dumped", s["table_cell"]),
+            Paragraph("<b>Windows Systems</b>", s["table_cell"]),
+            Paragraph("FAT12/16/32, exFAT, NTFS ($MFT, $MFTMirr, $LogFile), VSS", s["table_cell"]),
+            Paragraph("Orphan BPB derivation, $MFTMirr failover, VSS snapshot timeline discovery, File Slack Inspector", s["table_cell"]),
+            Paragraph("<b>Advanced + VSS + Slack</b>", s["table_cell"]),
         ],
         [
-            Paragraph("<b>Fragmented Extended Partitions</b>", s["table_cell"]),
-            Paragraph("DOS MBR / Extended", s["table_cell"]),
-            Paragraph("Complex nested EBR linked chain with unallocated gaps", s["table_cell"]),
-            Paragraph("Recursive EBR parsing & orphan boot record discovery", s["table_cell"]),
-            Paragraph("<b>100% Reconstructed</b><br/>All logical drives recovered", s["table_cell"]),
+            Paragraph("<b>Linux Systems</b>", s["table_cell"]),
+            Paragraph("EXT2, EXT3, EXT4 (Extents 0xF30A), CPIO, SquashFS v4", s["table_cell"]),
+            Paragraph("Sparse superblocks, double-indirect defragmentation, directory slack undelete, SquashFS reader", s["table_cell"]),
+            Paragraph("<b>Advanced + SquashFS + CPIO</b>", s["table_cell"]),
         ],
         [
-            Paragraph("<b>Truncated & Corrupted Media</b>", s["table_cell"]),
-            Paragraph("JPEG / PNG / BMP / OLE / PDF", s["table_cell"]),
-            Paragraph("Missing EOF marker, header table byte corruption", s["table_cell"]),
-            Paragraph("Resilience cocktail: auto-closure (FF D9), header tolerance & permissive decoding", s["table_cell"]),
-            Paragraph("<b>Visual Recovery</b><br/>Preview restored seamlessly", s["table_cell"]),
+            Paragraph("<b>Apple Ecosystem</b>", s["table_cell"]),
+            Paragraph("HFS+ / HFSX, APFS (Apple File System)", s["table_cell"]),
+            Paragraph("HFS B-Tree Catalog, $AllocationFile bitmap, Object Map OMAP, separated APFS sub-volumes", s["table_cell"]),
+            Paragraph("<b>New v2.8.0 (HFS+ & APFS)</b>", s["table_cell"]),
+        ],
+        [
+            Paragraph("<b>Embedded & Flash</b>", s["table_cell"]),
+            Paragraph("QNX4, QNX6, QNX F3S / ETFS, F2FS, EROFS, UBI / UBIFS", s["table_cell"]),
+            Paragraph("Raw flash erase units, in-place versioning, flash superblock sweep, 0xFF unprogrammed handling", s["table_cell"]),
+            Paragraph("<b>New v2.8.0 (F3S / Flash)</b>", s["table_cell"]),
+        ],
+        [
+            Paragraph("<b>Search & Carving</b>", s["table_cell"]),
+            Paragraph("Multi-format carving, Raw Search, Binwalk Entropy", s["table_cell"]),
+            Paragraph("Multi-threaded streaming regex/Unicode search, CFTT de-braiding, strict frame validation", s["table_cell"]),
+            Paragraph("<b>Complete + NIST CFTT 100%</b>", s["table_cell"]),
         ],
     ]
-    t_dftt = Table(dftt_table_data, colWidths=[95, 75, 140, 95, 100])
-    t_dftt.setStyle(TableStyle([
+    t_cap = Table(cap_table_data, colWidths=[90, 110, 215, 90])
+    t_cap.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0f172a")),
         ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f8fafc")]),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
-    story.append(t_dftt)
-    story.append(Spacer(1, 14))
+    story.append(t_cap)
+    story.append(Spacer(1, 12))
 
-    story.append(Paragraph("Conclusion", s["h2"]))
+    story.append(Paragraph("Conclusion & Outlook", s["h2"]))
     story.append(Paragraph(
-        "By fusing low-level UEFI GPT 2.10 repair, autonomous orphan BPB derivation, EXT2/3/4 defragmentation, "
-        "and granular intelligent carving, <b>DFR-Forensics</b> stands as a definitive, battle-tested forensic instrument "
-        "for law enforcement agencies, digital forensics labs, CSIRT/SOC incident responders, and data recovery specialists.",
+        "With version <b>v2.8.0</b>, <b>DFR-Forensics</b> establishes a unified forensic framework bridging conventional storage drives, "
+        "modern client workstations, and mission-critical embedded systems. Through automated VSS snapshot discovery, surgical File Slack "
+        "space inspection, bitmap-guided carving ($AllocationFile / $Bitmap), QNX F3S and SquashFS embedded parsing, and multi-threaded "
+        "streaming raw search, the platform equips law enforcement agencies, incident response teams (CSIRT), and reverse-engineering labs "
+        "with an uncompromisingly rigorous, transparent, and standards-compliant forensic investigative suite.",
         s["body"]
     ))
 
-    doc.build(story, canvasmaker=lambda *args, **kwargs: NumberedCanvas(*args, doc_title="DFR-Forensics - Technical Whitepaper", doc_lang="en", **kwargs))
+    doc.build(story, canvasmaker=lambda *args, **kwargs: NumberedCanvas(*args, doc_title="DFR-Forensics - Low-Level Architecture & Technical Whitepaper", doc_lang="en", **kwargs))
     print(f"[OK] English Whitepaper generated: {output_path}")
 
 

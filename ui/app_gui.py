@@ -309,6 +309,13 @@ class MainWindow(QMainWindow):
         self.btn_report.clicked.connect(self.export_forensic_report)
         triage_layout.addWidget(self.btn_report)
 
+        # Bouton Recherche Brute (Raw Keyword Search)
+        self.btn_raw_search = QPushButton("")
+        self.btn_raw_search.setObjectName("BtnRawSearch")
+        self.btn_raw_search.setEnabled(False)
+        self.btn_raw_search.clicked.connect(self.open_raw_search_dialog)
+        triage_layout.addWidget(self.btn_raw_search)
+
         # Bouton d'action principale : Restauration
         self.btn_repair = QPushButton("")
         self.btn_repair.setObjectName("BtnRepair")
@@ -405,6 +412,8 @@ class MainWindow(QMainWindow):
         self.btn_explorer.setText(t("btn_explorer"))
         self.btn_carver.setText(t("btn_carver"))
         self.btn_report.setText(t("btn_report"))
+        is_fr = get_lang() == "fr"
+        self.btn_raw_search.setText("🔍 " + ("Recherche Mots-Clés" if is_fr else "Raw Search"))
         self.lbl_canvas_title.setText(t("canvas_title"))
         self.lbl_parts.setText(t("table_title"))
 
@@ -496,6 +505,7 @@ class MainWindow(QMainWindow):
             self.btn_explorer.setEnabled(True)
             self.btn_carver.setEnabled(True)
             self.btn_report.setEnabled(True)
+            self.btn_raw_search.setEnabled(True)
             self.run_scan()
 
         except Exception as e:
@@ -623,6 +633,39 @@ class MainWindow(QMainWindow):
 
             status_str = t("status_intact") if not getattr(p, "is_wiped", False) else t("status_wiped")
             self.table_partitions.setItem(row, 7, QTableWidgetItem(status_str))
+
+            # Affichage indenté des sous-volumes logiques (APFS)
+            if getattr(p, "sub_volumes", None):
+                for sv_idx, sv in enumerate(p.sub_volumes, 1):
+                    sub_row = self.table_partitions.rowCount()
+                    self.table_partitions.insertRow(sub_row)
+                    item_id = QTableWidgetItem(f"{idx}.{sv_idx}")
+                    item_id.setForeground(QBrush(QColor("#00d2ff")))
+
+                    enc_tag = " 🔒" if sv.get("is_encrypted") else ""
+                    sv_name = f"  ↳ 📦 {sv.get('name', 'Volume')}{enc_tag}"
+                    item_name = QTableWidgetItem(sv_name)
+                    item_name.setForeground(QBrush(QColor("#00d2ff")))
+
+                    item_fs = QTableWidgetItem(f"Volume APFS (UUID: {sv.get('uuid', '')[:8]}...)")
+                    item_fs.setForeground(QBrush(QColor("#38bdf8")))
+
+                    self.table_partitions.setItem(sub_row, 0, item_id)
+                    self.table_partitions.setItem(sub_row, 1, item_name)
+                    self.table_partitions.setItem(sub_row, 2, item_fs)
+                    self.table_partitions.setItem(sub_row, 3, QTableWidgetItem(f"{p.first_lba:,}"))
+                    self.table_partitions.setItem(sub_row, 4, QTableWidgetItem(f"{p.last_lba:,}"))
+                    self.table_partitions.setItem(sub_row, 5, QTableWidgetItem(f"{p.total_sectors:,}"))
+                    self.table_partitions.setItem(sub_row, 6, QTableWidgetItem("Partagé (Pool)" if is_fr else "Shared (Pool)"))
+                    self.table_partitions.setItem(sub_row, 7, QTableWidgetItem("Actif" if is_fr else "Active"))
+
+    def open_raw_search_dialog(self):
+        """Ouvre le dialogue de recherche brute de mots-clés et regex."""
+        if not self.reader or not self.diagnostic:
+            return
+        from ui.raw_search_dialog import RawSearchDialog
+        dialog = RawSearchDialog(self.reader, self.diagnostic, parent=self)
+        dialog.exec()
 
     def on_partition_row_clicked(self, row: int, col: int = 0):
         if self.diagnostic and 0 <= row < len(self.diagnostic.partitions):

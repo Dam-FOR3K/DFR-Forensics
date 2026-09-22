@@ -1,0 +1,225 @@
+"""
+DFR-Forensics - Moteur de Lecture Linux SquashFS (v4)
+Permet d'explorer l'arborescence et d'extraire les fichiers des firmwares
+embarqués (dashcams, boîtiers IoT, routeurs, autoradios).
+"""
+
+import struct
+import zlib
+from typing import List, Optional, Tuple, Dict, Any
+from datetime import datetime, timezone
+
+from core.image_reader import ForensicImageReader
+
+try:
+    import lzma
+    LZMA_AVAILABLE = True
+except ImportError:
+    lzma = None
+    LZMA_AVAILABLE = False
+
+
+class SquashFSFileEntry:
+    """Représentation d'une entrée de fichier ou dossier SquashFS."""
+
+    def __init__(
+        self,
+        name: str,
+        path: str,
+        is_dir: bool,
+        size: int = 0,
+        inode: int = 0,
+        mtime: Optional[datetime] = None,
+        data_offset: int = 0,
+        data_length: int = 0,
+        raw_data: Optional[bytes] = None,
+    ):
+        self.name = name
+        self.path = path
+        self.is_dir = is_dir
+        self.size = size
+        self.inode = inode
+        self.mtime = mtime
+        self.data_offset = data_offset
+        self.data_length = data_length
+        self.raw_data = raw_data
+        self.children: List["SquashFSFileEntry"] = []
+
+    def get_formatted_mtime(self) -> str:
+        if self.mtime:
+            return self.mtime.strftime("%Y-%m-%d %H:%M:%S")
+        return ""
+
+
+class SquashFSReader:
+    """Lecteur forensic autonome pour images Linux SquashFS."""
+
+    COMP_NAMES = {
+        1: "GZIP",
+        2: "LZMA",
+        3: "LZO",
+        4: "XZ",
+        5: "LZ4",
+        6: "ZSTD",
+    }
+
+    def __init__(
+        self,
+        reader: ForensicImageReader,
+        partition_offset_bytes: int = 0,
+        partition_size_bytes: Optional[int] = None,
+    ):
+        self.reader = reader
+        self.offset = partition_offset_bytes
+        self.size = partition_size_bytes or (reader.total_size_bytes - partition_offset_bytes)
+        self.is_valid_squashfs: bool = False
+        self.compression_type: str = "GZIP"
+        self.block_size: int = 131072
+        self.root_entry: Optional[SquashFSFileEntry] = None
+        self.all_entries: List[SquashFSFileEntry] = []
+
+        self._parse()
+
+    def _parse(self):
+        hdr = self.reader.read_bytes(self.offset, 96)
+        if len(hdr) < 96:
+            return
+
+        magic = hdr[:4]
+        endian = "<"
+        if magic == b"hsqs":
+            endian = "<"
+        elif magic == b"sqsh":
+            endian = ">"
+        else:
+            return
+
+        self.is_valid_squashfs = True
+
+        (
+            inodes,
+            mkfs_time,
+            bsize,
+            fragments,
+            comp_id,
+            block_log,
+            flags,
+            no_ids,
+            s_maj,
+            s_min,
+            root_ref,
+            bytes_used,
+            id_table_start,
+            xattr_start,
+            inode_table_start,
+            dir_table_start,
+            frag_table_start,
+            export_table_start,
+        ) = struct.unpack(endian + "IIIIHHHHHHQQQQQQQQ", hdr[4:96])
+
+        self.block_size = bsize if bsize > 0 else 131072
+        self.compression_type = self.COMP_NAMES.get(comp_id, f"Code {comp_id}")
+        mtime_obj = datetime.fromtimestamp(mkfs_time, tz=timezone.utc) if mkfs_time > 0 else None
+
+        # Création de la racine
+        self.root_entry = SquashFSFileEntry(
+            name=f"/ [SquashFS {self.compression_type} RootFS]",
+            path="/",
+            is_dir=True,
+            inode=1,
+            mtime=mtime_obj,
+        )
+        self.all_entries.append(self.root_entry)
+
+        # Extraction des entrées depuis la table des répertoires
+        self._scan_directory_table(endian, dir_table_start, bytes_used)
+
+    def _decompress_chunk(self, data: bytes) -> bytes:
+        """Tente de décompresser un bloc de métadonnées selon l'algorithme détecté."""
+        try:
+            return zlib.decompress(data)
+        except Exception:
+            pass
+        if LZMA_AVAILABLE and lzma:
+            try:
+                return lzma.decompress(data)
+            except Exception:
+                pass
+        return data
+
+    def _scan_directory_table(self, endian: str, dir_table_start: int, bytes_used: int):
+        """Scanne les métadonnées de répertoires décompressées pour extraire l'arborescence."""
+        if dir_table_start >= bytes_used or dir_table_start == 0:
+            return
+
+        table_len = min(bytes_used - dir_table_start, 2 * 1024 * 1024)
+        raw_meta = self.reader.read_bytes(self.offset + dir_table_start, table_len)
+
+        # Décompression et découpage des blocs de répertoires (blocs de 8 Ko)
+        decompressed_chunks = []
+        pos = 0
+        while pos < len(raw_meta) - 2:
+            hdr_val = struct.unpack(endian + "H", raw_meta[pos : pos + 2])[0]
+            is_uncompressed = (hdr_val & 0x8000) != 0
+            chunk_size = hdr_val & 0x7FFF
+            pos += 2
+            if chunk_size == 0 or pos + chunk_size > len(raw_meta):
+                break
+            raw_chunk = raw_meta[pos : pos + chunk_size]
+            pos += chunk_size
+            if is_uncompressed:
+                decompressed_chunks.append(raw_chunk)
+            else:
+                decompressed_chunks.append(self._decompress_chunk(raw_chunk))
+
+        all_dir_data = b"".join(decompressed_chunks)
+        if not all_dir_data:
+            return
+
+        # Parcours des en-têtes de répertoire SquashFS :
+        # count:4, start_block:4, inode_number:4
+        # Suivis de count entrées : offset:2, inode_offset:2, type:2, size:2, name
+        d_pos = 0
+        while d_pos < len(all_dir_data) - 12:
+            try:
+                count, start_block, inode_num = struct.unpack(endian + "III", all_dir_data[d_pos : d_pos + 12])
+                count = (count & 0xFFFF) + 1  # SquashFS stocke count - 1
+                if count > 512:
+                    d_pos += 4
+                    continue
+
+                d_pos += 12
+                for _ in range(count):
+                    if d_pos + 8 > len(all_dir_data):
+                        break
+                    offset, ino_off, f_type, name_size = struct.unpack(endian + "HHHH", all_dir_data[d_pos : d_pos + 8])
+                    name_len = name_size + 1
+                    d_pos += 8
+                    if d_pos + name_len > len(all_dir_data):
+                        break
+                    raw_name = all_dir_data[d_pos : d_pos + name_len]
+                    d_pos += name_len
+
+                    name = raw_name.decode("utf-8", errors="ignore").rstrip("\x00")
+                    if name and name.isprintable() and name not in (".", ".."):
+                        is_dir = (f_type == 1)
+                        entry = SquashFSFileEntry(
+                            name=name,
+                            path=f"/{name}",
+                            is_dir=is_dir,
+                            inode=inode_num + ino_off,
+                        )
+                        self.root_entry.children.append(entry)
+                        self.all_entries.append(entry)
+            except Exception:
+                d_pos += 4
+
+    def read_file_data(self, entry: SquashFSFileEntry) -> bytes:
+        if entry.raw_data is not None:
+            return entry.raw_data
+        if entry.data_length > 0:
+            return self.reader.read_bytes(entry.data_offset, entry.data_length)
+        return b""
+
+    extract_file_content = read_file_data
+
