@@ -2,7 +2,7 @@
 DFR-Forensics - Générateur de Whitepapers Techniques & Guides d'Architecture
 Produit une documentation forensique approfondie multi-pages (FR et EN)
 destinée aux analystes médico-légaux, ingénieurs en rétro-ingénierie et auditeurs.
-Auteur : Dam-FOR3K | Version : v2.8.0
+Auteur : Dam-FOR3K | Version : v2.8.1
 """
 
 import os
@@ -192,13 +192,13 @@ def build_french_whitepaper(output_path: str):
     story = []
 
     # Title & Metadata
-    story.append(Paragraph("DFR-FORENSICS v2.8.0", s["title"]))
+    story.append(Paragraph("DFR-FORENSICS v2.8.1", s["title"]))
     story.append(Paragraph("Disk & File Resurrection : Guide d'Architecture Forensique & Manuel Technique", s["subtitle"]))
 
     meta_table_data = [
         [
             Paragraph("<b>Auteur :</b> Dam-FOR3K", s["table_cell"]),
-            Paragraph("<b>Version :</b> v2.8.0", s["table_cell"]),
+            Paragraph("<b>Version :</b> v2.8.1", s["table_cell"]),
             Paragraph("<b>Date :</b> Septembre 2026", s["table_cell"]),
             Paragraph("<b>Licence :</b> MIT Open-Source", s["table_cell"]),
         ]
@@ -321,8 +321,8 @@ def build_french_whitepaper(output_path: str):
 
     story.append(PageBreak())
 
-    # Section 4 (NEW v2.8.0)
-    story.append(Paragraph("4. Systèmes Embarqués, Mobiles & Flash Avancés (Nouveautés v2.8.0)", s["h1"]))
+    # Section 4 (NEW v2.8.1)
+    story.append(Paragraph("4. Systèmes Embarqués, Mobiles & Flash Avancés (Nouveautés v2.8.1)", s["h1"]))
     story.append(Paragraph(
         "La version 2.8.0 introduit des moteurs natifs dédiés aux firmwares industriels, aux calculateurs automobiles (IVI/ECU), "
         "aux systèmes mobiles et aux environnements Apple modernes :",
@@ -357,11 +357,11 @@ def build_french_whitepaper(output_path: str):
         s["body"]
     ))
     story.append(Paragraph("• <b>Object Map (OMAP) & B-Trees d'Objets</b> : Décodage de l'arbre B-Tree virtuel traduisant les identifiants d'objets (OID) virtuels en adresses de blocs physiques (PBA).", s["bullet"]))
-    story.append(Paragraph("• <b>Découverte & Affichage Séparé des Sous-Volumes</b> : Dès la v2.8.0, chaque sous-volume APFS est identifié individuellement dans la table de partitions principale (en sous-lignes indentées) et dans l'explorateur de fichiers. L'analyste peut ainsi explorer isolément le volume système scellé en lecture seule et le volume utilisateur <i>Data</i>.", s["bullet"]))
+    story.append(Paragraph("• <b>Découverte & Affichage Séparé des Sous-Volumes</b> : Dès la v2.8.1, chaque sous-volume APFS est identifié individuellement dans la table de partitions principale (en sous-lignes indentées) et dans l'explorateur de fichiers. L'analyste peut ainsi explorer isolément le volume système scellé en lecture seule et le volume utilisateur <i>Data</i>.", s["bullet"]))
 
     story.append(Paragraph("D. Systèmes Linux Embarqués : SquashFS, CPIO, F2FS, EROFS, UBI/UBIFS", s["h2"]))
     story.append(Paragraph(
-        "DFR-Forensics v2.8.0 intègre un ensemble de décodeurs pour les architectures embarquées et smartphones :",
+        "DFR-Forensics v2.8.1 intègre un ensemble de décodeurs pour les architectures embarquées et smartphones :",
         s["body"]
     ))
     story.append(Paragraph("• <b>SquashFS v4 (magic <code>'hsqs' 0x73717368</code>)</b> : Système de fichiers compressé en lecture seule utilisé sur les box Internet, routeurs et IoT. Décompression native des tables d'inodes, blocs de données et fragments compressés (Zlib, LZ4, Zstandard, XZ).", s["bullet"]))
@@ -372,7 +372,7 @@ def build_french_whitepaper(output_path: str):
 
     story.append(PageBreak())
 
-    # Section 5 (NEW v2.8.0)
+    # Section 5 (NEW v2.8.1)
     story.append(Paragraph("5. Clichés Instantanés VSS, Inspection du Slack Space & Recherche Brute", s["h1"]))
 
     story.append(Paragraph("A. Clichés Instantanés Windows VSS (Volume Shadow Copies)", s["h2"]))
@@ -500,7 +500,7 @@ def build_french_whitepaper(output_path: str):
             Paragraph("Module / Domaine", s["table_header"]),
             Paragraph("Technologies Cibles", s["table_header"]),
             Paragraph("Capacités Clés DFR-Forensics", s["table_header"]),
-            Paragraph("Statut v2.8.0", s["table_header"]),
+            Paragraph("Statut v2.8.1", s["table_header"]),
         ],
         [
             Paragraph("<b>Conteneurs Disques</b>", s["table_cell"]),
@@ -530,13 +530,13 @@ def build_french_whitepaper(output_path: str):
             Paragraph("<b>Écosystème Apple</b>", s["table_cell"]),
             Paragraph("HFS+ / HFSX, APFS (Apple File System)", s["table_cell"]),
             Paragraph("B-Tree Catalog HFS, bitmap $AllocationFile, Object Map OMAP, volumes APFS individuels séparés", s["table_cell"]),
-            Paragraph("<b>Nouveau v2.8.0 (HFS+ & APFS)</b>", s["table_cell"]),
+            Paragraph("<b>Nouveau v2.8.1 (HFS+ & APFS)</b>", s["table_cell"]),
         ],
         [
             Paragraph("<b>Embarqué & Flash</b>", s["table_cell"]),
             Paragraph("QNX4, QNX6, QNX F3S / ETFS, F2FS, EROFS, UBI / UBIFS", s["table_cell"]),
             Paragraph("Erase units flash brutes, recalcul in-place, détection de superblocs flash, gestion 0xFF", s["table_cell"]),
-            Paragraph("<b>Nouveau v2.8.0 (F3S / Flash)</b>", s["table_cell"]),
+            Paragraph("<b>Nouveau v2.8.1 (F3S / Flash)</b>", s["table_cell"]),
         ],
         [
             Paragraph("<b>Recherche & Carving</b>", s["table_cell"]),
@@ -559,7 +559,7 @@ def build_french_whitepaper(output_path: str):
 
     story.append(Paragraph("Conclusion & Perspectives", s["h2"]))
     story.append(Paragraph(
-        "Avec sa version <b>v2.8.0</b>, <b>DFR-Forensics</b> franchit une étape majeure en unifiant l'investigation sur disques conventionnels, "
+        "Avec sa version <b>v2.8.1</b>, <b>DFR-Forensics</b> franchit une étape majeure en unifiant l'investigation sur disques conventionnels, "
         "postes de travail modernes et systèmes embarqués critiques. Grâce à la découverte autonome de clichés VSS, l'inspection chirurgicale "
         "du Slack Space, le carving guidé par les bitmaps $AllocationFile / $Bitmap, le décodage de volumes bruts QNX F3S et SquashFS, "
         "et la recherche brute multi-threadée, la plateforme offre aux laboratoires de criminalistique numérique, forces de l'ordre, "
@@ -585,13 +585,13 @@ def build_english_whitepaper(output_path: str):
     story = []
 
     # Title & Metadata
-    story.append(Paragraph("DFR-FORENSICS v2.8.0", s["title"]))
+    story.append(Paragraph("DFR-FORENSICS v2.8.1", s["title"]))
     story.append(Paragraph("Disk & File Resurrection: Low-Level Architecture & Technical Whitepaper", s["subtitle"]))
 
     meta_table_data = [
         [
             Paragraph("<b>Author:</b> Dam-FOR3K", s["table_cell"]),
-            Paragraph("<b>Version:</b> v2.8.0", s["table_cell"]),
+            Paragraph("<b>Version:</b> v2.8.1", s["table_cell"]),
             Paragraph("<b>Date:</b> September 2026", s["table_cell"]),
             Paragraph("<b>License:</b> MIT Open-Source", s["table_cell"]),
         ]
@@ -711,8 +711,8 @@ def build_english_whitepaper(output_path: str):
 
     story.append(PageBreak())
 
-    # Section 4 (NEW v2.8.0)
-    story.append(Paragraph("4. Embedded, Mobile & Flash Filesystems (v2.8.0 Additions)", s["h1"]))
+    # Section 4 (NEW v2.8.1)
+    story.append(Paragraph("4. Embedded, Mobile & Flash Filesystems (v2.8.1 Additions)", s["h1"]))
     story.append(Paragraph(
         "Version 2.8.0 expands DFR-Forensics beyond traditional PC storage into industrial firmware dumps, "
         "automotive infotainment systems (IVI/ECUs), mobile devices, and modern Apple architectures:",
@@ -747,11 +747,11 @@ def build_english_whitepaper(output_path: str):
         s["body"]
     ))
     story.append(Paragraph("• <b>Object Map (OMAP) & B-Tree Navigation</b>: Resolves virtual object IDs (OID) to physical block addresses (PBA).", s["bullet"]))
-    story.append(Paragraph("• <b>Individual Sub-Volume Discovery</b>: As of v2.8.0, APFS sub-volumes are automatically discovered and displayed separately in the partition table (as indented child entries) and in the virtual file explorer dropdown, enabling analysts to investigate user data independently from sealed system volumes.", s["bullet"]))
+    story.append(Paragraph("• <b>Individual Sub-Volume Discovery</b>: As of v2.8.1, APFS sub-volumes are automatically discovered and displayed separately in the partition table (as indented child entries) and in the virtual file explorer dropdown, enabling analysts to investigate user data independently from sealed system volumes.", s["bullet"]))
 
     story.append(Paragraph("D. Embedded Linux Filesystems: SquashFS, CPIO, F2FS, EROFS, UBI/UBIFS", s["h2"]))
     story.append(Paragraph(
-        "DFR-Forensics v2.8.0 integrates specialized parsers for embedded Linux distributions and mobile dumps:",
+        "DFR-Forensics v2.8.1 integrates specialized parsers for embedded Linux distributions and mobile dumps:",
         s["body"]
     ))
     story.append(Paragraph("• <b>SquashFS v4 (magic <code>'hsqs' 0x73717368</code>)</b>: High-density compressed read-only filesystem found in routers, gateways, and IoT firmware. Decompresses metadata tables, directory entries, and data fragments (Zlib, LZ4, Zstandard, XZ).", s["bullet"]))
@@ -762,7 +762,7 @@ def build_english_whitepaper(output_path: str):
 
     story.append(PageBreak())
 
-    # Section 5 (NEW v2.8.0)
+    # Section 5 (NEW v2.8.1)
     story.append(Paragraph("5. Volume Shadow Copies (VSS), File Slack Inspection & Raw Search", s["h1"]))
 
     story.append(Paragraph("A. Windows Volume Shadow Copies (VSS Snapshots)", s["h2"]))
@@ -889,7 +889,7 @@ def build_english_whitepaper(output_path: str):
             Paragraph("Module / Domain", s["table_header"]),
             Paragraph("Target Technologies", s["table_header"]),
             Paragraph("Key DFR-Forensics Capabilities", s["table_header"]),
-            Paragraph("v2.8.0 Status", s["table_header"]),
+            Paragraph("v2.8.1 Status", s["table_header"]),
         ],
         [
             Paragraph("<b>Disk Containers</b>", s["table_cell"]),
@@ -919,13 +919,13 @@ def build_english_whitepaper(output_path: str):
             Paragraph("<b>Apple Ecosystem</b>", s["table_cell"]),
             Paragraph("HFS+ / HFSX, APFS (Apple File System)", s["table_cell"]),
             Paragraph("HFS B-Tree Catalog, $AllocationFile bitmap, Object Map OMAP, separated APFS sub-volumes", s["table_cell"]),
-            Paragraph("<b>New v2.8.0 (HFS+ & APFS)</b>", s["table_cell"]),
+            Paragraph("<b>New v2.8.1 (HFS+ & APFS)</b>", s["table_cell"]),
         ],
         [
             Paragraph("<b>Embedded & Flash</b>", s["table_cell"]),
             Paragraph("QNX4, QNX6, QNX F3S / ETFS, F2FS, EROFS, UBI / UBIFS", s["table_cell"]),
             Paragraph("Raw flash erase units, in-place versioning, flash superblock sweep, 0xFF unprogrammed handling", s["table_cell"]),
-            Paragraph("<b>New v2.8.0 (F3S / Flash)</b>", s["table_cell"]),
+            Paragraph("<b>New v2.8.1 (F3S / Flash)</b>", s["table_cell"]),
         ],
         [
             Paragraph("<b>Search & Carving</b>", s["table_cell"]),
@@ -948,7 +948,7 @@ def build_english_whitepaper(output_path: str):
 
     story.append(Paragraph("Conclusion & Outlook", s["h2"]))
     story.append(Paragraph(
-        "With version <b>v2.8.0</b>, <b>DFR-Forensics</b> establishes a unified forensic framework bridging conventional storage drives, "
+        "With version <b>v2.8.1</b>, <b>DFR-Forensics</b> establishes a unified forensic framework bridging conventional storage drives, "
         "modern client workstations, and mission-critical embedded systems. Through automated VSS snapshot discovery, surgical File Slack "
         "space inspection, bitmap-guided carving ($AllocationFile / $Bitmap), QNX F3S and SquashFS embedded parsing, and multi-threaded "
         "streaming raw search, the platform equips law enforcement agencies, incident response teams (CSIRT), and reverse-engineering labs "
