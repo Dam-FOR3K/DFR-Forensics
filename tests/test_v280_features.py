@@ -346,3 +346,20 @@ def test_scanner_signatures_and_apfs_subvolumes():
     entry.sub_volumes.append({"name": "Macintosh HD", "uuid": "ABC-123", "is_encrypted": False})
     assert len(entry.sub_volumes) == 1
 
+
+def test_raw_search_dialog_init(temp_img):
+    """Vérifie que RawSearchDialog s'initialise sans aucune erreur d'import ou de layout."""
+    from PySide6.QtWidgets import QApplication
+    from ui.raw_search_dialog import RawSearchDialog
+
+    app = QApplication.instance() or QApplication([])
+    path = temp_img(size=256 * 1024)
+    reader = RawImageReader(path)
+    dialog = RawSearchDialog(reader, diag=None)
+    assert dialog.combo_scope.count() >= 1
+    assert dialog.combo_scope.itemText(0) in ("Disque Entier (Physique)", "Entire Physical Disk")
+    assert dialog.edit_query is not None
+    dialog.close()
+    reader.close()
+
+

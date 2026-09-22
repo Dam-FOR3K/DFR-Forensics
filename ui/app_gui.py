@@ -661,11 +661,26 @@ class MainWindow(QMainWindow):
 
     def open_raw_search_dialog(self):
         """Ouvre le dialogue de recherche brute de mots-clés et regex."""
-        if not self.reader or not self.diagnostic:
+        if not self.reader:
+            is_fr = get_lang() == "fr"
+            QMessageBox.information(
+                self,
+                "Recherche Mots-Clés" if is_fr else "Raw Search",
+                "Veuillez d'abord ouvrir une image disque ou un lecteur physique." if is_fr else "Please open a disk image or physical drive first."
+            )
             return
-        from ui.raw_search_dialog import RawSearchDialog
-        dialog = RawSearchDialog(self.reader, self.diagnostic, parent=self)
-        dialog.exec()
+        try:
+            from ui.raw_search_dialog import RawSearchDialog
+            dialog = RawSearchDialog(self.reader, self.diagnostic, parent=self)
+            dialog.exec()
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            QMessageBox.critical(
+                self,
+                "Erreur de recherche",
+                f"Impossible d'ouvrir la recherche brute :\n\n{e}"
+            )
 
     def on_partition_row_clicked(self, row: int, col: int = 0):
         if self.diagnostic and 0 <= row < len(self.diagnostic.partitions):

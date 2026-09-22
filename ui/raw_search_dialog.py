@@ -32,7 +32,6 @@ from core.i18n import t, get_lang
 from core.image_reader import ForensicImageReader
 from core.scanner import ScanDiagnostic, GPTPartitionEntry
 from core.raw_search import RawSearchWorker, SearchHit
-from ui.hex_viewer import HexViewerDialog
 
 
 class RawSearchDialog(QDialog):
@@ -41,7 +40,7 @@ class RawSearchDialog(QDialog):
     def __init__(
         self,
         reader: ForensicImageReader,
-        diag: ScanDiagnostic,
+        diag: Optional[ScanDiagnostic] = None,
         parent=None,
     ):
         super().__init__(parent)
@@ -105,7 +104,8 @@ class RawSearchDialog(QDialog):
         row2.addWidget(QLabel(f"<b>{'Périmètre :' if is_fr else 'Scope :'}</b>"))
         self.combo_scope = QComboBox()
         self.combo_scope.addItem("Disque Entier (Physique)" if is_fr else "Entire Physical Disk", None)
-        for idx, p in enumerate(self.diag.partitions, 1):
+        partitions = self.diag.partitions if (self.diag and hasattr(self.diag, "partitions")) else []
+        for idx, p in enumerate(partitions, 1):
             p_name = p.name or f"Partition {idx}"
             self.combo_scope.addItem(f"Partition {idx} : {p_name} (LBA {p.first_lba:,})", p)
         self.combo_scope.setStyleSheet("background: #222530; color: #fff; padding: 4px; border: 1px solid #444; border-radius: 3px;")
