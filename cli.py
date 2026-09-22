@@ -219,7 +219,7 @@ def cmd_list_drives():
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        console.print("[bold cyan]DFR-Forensics CLI - Disk & File Resurrection (v2.7.2)[/bold cyan]")
+        console.print("[bold cyan]DFR-Forensics CLI - Disk & File Resurrection (v2.7.3)[/bold cyan]")
         console.print("Usage:")
         console.print("  python cli.py --list-drives                                     (Lister les disques physiques connectés)")
         console.print("  python cli.py scan <image_ou_disque>                            (Analyser une image ou \\\\.\\PhysicalDriveX)")

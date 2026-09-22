@@ -52,6 +52,8 @@ def identify_fs_signature(sector_data: bytes) -> Optional[str]:
         bde_guid2 = b";M\xa8\x92\x80\xdd\x0eM\x9eN\xb1\xe3(N\xae\xd8" # EOW_INFORMATION_OFFSET_GUID
         if bde_guid1 in first_512 or bde_guid2 in first_512 or first_512[3:11] == b"-FVE-FS-":
             return "BitLocker Encrypted Volume"
+        if b"QSSL_F3S" in first_512:
+            return "QNX Flash Filesystem (ETFS / F3S)"
 
     for offset, sig, label in KNOWN_SIGNATURES:
         if len(sector_data) >= offset + len(sig):
@@ -87,6 +89,8 @@ def detect_all_filesystems(sample_data: bytes) -> List[str]:
             detected.append("APFS")
         elif sample_data[:4] == b"\xeb\x10\x90\x00":
             detected.append("QNX6")
+        elif b"QSSL_F3S" in first_512:
+            detected.append("QNX")
 
     # Vérification des secteurs de secours si le secteur 0 a été effacé
     if len(sample_data) >= 3072 + 90:

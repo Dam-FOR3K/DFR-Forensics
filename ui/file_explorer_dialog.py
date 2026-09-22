@@ -497,7 +497,29 @@ class VirtualExplorerDialog(QDialog):
                 self._populate_ad1_tree(ad1_obj, p)
                 return
 
-        # 1. Gestion NTFS Réelle (MFT + Undelete) - Vérifié en premier si boot signature NTFS ou fs NTFS
+        # 1. Gestion QNX (QNX4 & QNX6 Power-Safe) - Prioritaire si détecté
+        if "QNX" in chosen_fs.upper():
+            try:
+                part_size = p.total_sectors * self.reader.sector_size
+                qnx = QNXReader(active_reader, partition_offset_bytes=active_offset, partition_size_bytes=part_size)
+                if qnx.is_valid_qnx and qnx.root_entry:
+                    self._populate_qnx_tree(qnx, p)
+                    return
+            except Exception as e:
+                self.preview_text.setPlainText(f"Erreur d'analyse QNX : {e}")
+
+        # 2. Gestion Apple APFS (Multi-Volumes & Fichiers) - Prioritaire si détecté
+        if "APFS" in chosen_fs.upper() or "APPLE" in chosen_fs.upper():
+            try:
+                part_size = p.total_sectors * self.reader.sector_size
+                apfs_r = APFSReader(active_reader, partition_offset_bytes=active_offset, partition_size_bytes=part_size)
+                if apfs_r.is_valid_apfs and apfs_r.volumes:
+                    self._populate_apfs_tree(apfs_r, p)
+                    return
+            except Exception as e:
+                self.preview_text.setPlainText(f"Erreur d'analyse APFS : {e}")
+
+        # 3. Gestion NTFS Réelle (MFT + Undelete)
         if boot_sig == b"NTFS" or "NTFS" in chosen_fs.upper() or (handler and handler.is_unlocked and boot_sig != b"FAT"):
             try:
                 ntfs = NTFSReader(active_reader, partition_offset_bytes=active_offset)
@@ -508,7 +530,7 @@ class VirtualExplorerDialog(QDialog):
                 if "NTFS" in chosen_fs.upper():
                     self.preview_text.setPlainText(f"Erreur d'analyse NTFS : {e}")
 
-        # 2. Gestion Ext2/Ext3/Ext4
+        # 4. Gestion Ext2/Ext3/Ext4
         if "EXT" in chosen_fs.upper() or (handler and handler.is_unlocked and boot_sig == b""):
             try:
                 ext = ExtReader(active_reader, partition_offset_bytes=active_offset)
@@ -519,7 +541,7 @@ class VirtualExplorerDialog(QDialog):
                 if "EXT" in chosen_fs.upper():
                     self.preview_text.setPlainText(f"Erreur d'analyse Ext : {e}")
 
-        # 3. Gestion exFAT
+        # 5. Gestion exFAT
         if "EXFAT" in chosen_fs.upper() or boot_sig == b"EXFAT":
             try:
                 part_size = p.total_sectors * self.reader.sector_size
@@ -531,7 +553,7 @@ class VirtualExplorerDialog(QDialog):
                 if "EXFAT" in chosen_fs.upper():
                     self.preview_text.setPlainText(f"Erreur d'analyse exFAT : {e}")
 
-        # 4. Gestion FAT12 / FAT16 / FAT32
+        # 6. Gestion FAT12 / FAT16 / FAT32 (Nominal)
         if boot_sig == b"FAT" or "FAT" in chosen_fs.upper() or (handler and handler.is_unlocked):
             try:
                 fat = FATReader(active_reader, partition_offset_bytes=active_offset)
@@ -542,76 +564,50 @@ class VirtualExplorerDialog(QDialog):
                 if "FAT" in chosen_fs.upper():
                     self.preview_text.setPlainText(f"Erreur d'analyse FAT : {e}")
 
-        # 4. Fallback NTFS si pas encore tenté
-        if boot_sig != b"NTFS" and "NTFS" not in chosen_fs.upper():
-            try:
-                ntfs = NTFSReader(active_reader, partition_offset_bytes=active_offset)
-                if ntfs.is_valid_ntfs and ntfs.root_entry:
-                    self._populate_ntfs_tree(ntfs, p)
-                    return
-            except Exception:
-                pass
-
-        # Fallback automatique : Tester FAT puis Ext2
+        # === FALLBACKS AUTOMATIQUES SI AUCUN SYSTÈME EXPLICITE N'A ABOUTI ===
+        # Tester NTFS
         try:
-            fat = FATReader(active_reader, partition_offset_bytes=active_offset)
-            if fat.is_valid_fat and fat.root_entry:
-                self._populate_fat_tree(fat, p)
-
+            ntfs = NTFSReader(active_reader, partition_offset_bytes=active_offset)
+            if ntfs.is_valid_ntfs and ntfs.root_entry:
+                self._populate_ntfs_tree(ntfs, p)
                 return
         except Exception:
             pass
 
+        # Tester EXT
         try:
             ext = ExtReader(active_reader, partition_offset_bytes=active_offset)
             if ext.is_valid_ext and ext.root_entry:
                 self._populate_ext_tree(ext, p)
-
                 return
         except Exception:
             pass
 
-        # 4. Gestion QNX (QNX4 & QNX6 Power-Safe)
-        if "QNX" in chosen_fs.upper():
-            try:
-                part_size = p.total_sectors * self.reader.sector_size
-                qnx = QNXReader(active_reader, partition_offset_bytes=active_offset, partition_size_bytes=part_size)
-                if qnx.is_valid_qnx and qnx.root_entry:
-                    self._populate_qnx_tree(qnx, p)
-    
-                    return
-            except Exception as e:
-                self.preview_text.setPlainText(f"Erreur d'analyse QNX : {e}")
-
-        # 5. Gestion Apple APFS (Multi-Volumes & Fichiers)
-        if "APFS" in chosen_fs.upper():
-            try:
-                part_size = p.total_sectors * self.reader.sector_size
-                apfs_r = APFSReader(active_reader, partition_offset_bytes=active_offset, partition_size_bytes=part_size)
-                if apfs_r.is_valid_apfs and apfs_r.volumes:
-                    self._populate_apfs_tree(apfs_r, p)
-    
-                    return
-            except Exception as e:
-                self.preview_text.setPlainText(f"Erreur d'analyse APFS : {e}")
-
-        # Fallback automatique : Tester QNX puis APFS si les précédents n'ont rien retourné
+        # Tester QNX
         try:
             part_size = p.total_sectors * self.reader.sector_size
             qnx = QNXReader(active_reader, partition_offset_bytes=active_offset, partition_size_bytes=part_size)
             if qnx.is_valid_qnx and qnx.root_entry:
                 self._populate_qnx_tree(qnx, p)
-
                 return
         except Exception:
             pass
 
+        # Tester APFS
         try:
             part_size = p.total_sectors * self.reader.sector_size
             apfs_r = APFSReader(active_reader, partition_offset_bytes=active_offset, partition_size_bytes=part_size)
             if apfs_r.is_valid_apfs and apfs_r.volumes:
                 self._populate_apfs_tree(apfs_r, p)
+                return
+        except Exception:
+            pass
 
+        # Tester FAT (En dernier recours)
+        try:
+            fat = FATReader(active_reader, partition_offset_bytes=active_offset)
+            if fat.is_valid_fat and fat.root_entry:
+                self._populate_fat_tree(fat, p)
                 return
         except Exception:
             pass

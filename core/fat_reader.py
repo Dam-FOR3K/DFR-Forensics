@@ -188,6 +188,9 @@ class FATReader:
             sec = self.reader.read_sector(lba)
             if len(sec) < 8:
                 continue
+            # Ignorer les blocs entièrement remplis de 0xFF (mémoire flash effacée/non formatée)
+            if sec[:64] == b"\xff" * 64 or sec == b"\xff" * len(sec):
+                continue
             m = sec[0]
             if m in (0xF0, 0xF8, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD, 0xFE, 0xFF):
                 if sec[1:4] == b"\xff\xff\xff":
@@ -215,6 +218,8 @@ class FATReader:
             sec = self.reader.read_sector(lba)
             if len(sec) < 8:
                 continue
+            if sec[:64] == b"\xff" * 64 or sec == b"\xff" * len(sec):
+                continue
             if sec[0] == self.reader.read_bytes(fat1_lba * self.reader.sector_size, 1)[0] and sec[1:3] == b"\xff\xff":
                 fat2_lba = lba
                 break
@@ -237,13 +242,17 @@ class FATReader:
         files_to_probe = []
         for i in range(0, len(root_bytes), 32):
             chunk = root_bytes[i : i + 32]
-            if chunk[0] in (0x00, 0xE5) or chunk[11] == 0x0F:
+            if chunk[0] in (0x00, 0xE5, 0xFF) or chunk == b"\xff" * 32 or chunk[11] == 0x0F:
                 continue
             name = chunk[:11].decode("latin1", "replace").strip()
             fclus = struct.unpack("<H", chunk[26:28])[0]
             fsz = struct.unpack("<I", chunk[28:32])[0]
             if fclus >= 2 and fsz > 0:
                 files_to_probe.append((name, fclus, fsz))
+
+        if not files_to_probe:
+            self.is_valid_fat = False
+            return
 
         data_start_lba = root_dir_lba + root_dir_sectors
 
@@ -327,6 +336,8 @@ class FATReader:
             first_byte = raw[0]
             if first_byte == 0x00:
                 break
+            if first_byte == 0xFF or raw == b"\xff" * 32:
+                continue
 
             attr = raw[11]
 

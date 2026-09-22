@@ -2,7 +2,7 @@
 DFR-Forensics - Générateur de Whitepapers Techniques & Guides d'Architecture
 Produit une documentation forensique approfondie multi-pages (FR et EN)
 destinée aux analystes médico-légaux, ingénieurs en rétro-ingénierie et auditeurs.
-Auteur : Dam-FOR3K | Version : v2.7.2
+Auteur : Dam-FOR3K | Version : v2.7.3
 """
 
 import os
@@ -197,7 +197,7 @@ def build_french_whitepaper(output_path: str):
     meta_table_data = [
         [
             Paragraph("<b>Auteur :</b> Dam-FOR3K", s["table_cell"]),
-            Paragraph("<b>Version :</b> v2.7.2", s["table_cell"]),
+            Paragraph("<b>Version :</b> v2.7.3", s["table_cell"]),
             Paragraph("<b>Date :</b> Septembre 2026", s["table_cell"]),
             Paragraph("<b>Licence :</b> MIT Open-Source", s["table_cell"]),
         ]
@@ -523,7 +523,7 @@ def build_english_whitepaper(output_path: str):
     meta_table_data = [
         [
             Paragraph("<b>Author:</b> Dam-FOR3K", s["table_cell"]),
-            Paragraph("<b>Version:</b> v2.7.2", s["table_cell"]),
+            Paragraph("<b>Version:</b> v2.7.3", s["table_cell"]),
             Paragraph("<b>Date:</b> September 2026", s["table_cell"]),
             Paragraph("<b>License:</b> MIT Open-Source", s["table_cell"]),
         ]
